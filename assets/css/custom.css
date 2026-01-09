@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+:root {
+    --primary-dark:#1E293B; 
+    --secondary-color:#F97316;
+    --btn-color:#06B6D4;
+    --bg-color:#F8FAFC ;
+
+}
+
+
+.text_color{
+    color: #F8FAFC;
+}
+
+.btn_color_login_signup{
+    color: #06B6D4;
+}
+
+.animate {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: fadeInUp 1s forwards;
+}
+
+@keyframes fadeInUp {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate_top {
+    animation-delay: calc(var(--i) * 0.2s);
+}
+
+.animate_left {
+    animation-delay: calc(var(--i) * 0.3s);
+    transform: translateX(-20px);
+}
+
+.sub_nav_mobile,
+.sub_nav_mobile2 { display: none; }
+.sub_nav_mobile.open,
+.sub_nav_mobile2.open { display: block; }
+
+
+/* profile */
+
+/* FixMate custom profile dropdown */
+.fm-profile-menu-wrapper {
+  position: relative;
+}
+
+.fm-profile-dropdown {
+  display: none;
+  /* width: 200px !important; */
+  text-align: center !important;
+  position: absolute;
+    top: 100%;       /* Below the icon */
+    right: 0;
+    display: none;   /* Hidden by default */
+    z-index: 9999; 
+
+}
+
+.fm-profile-dropdown.fm-profile-dropdown--open {
+  display: block !important;
+}
+
+/* .menu_mobile.open {
+    overflow-y: hidden !important;
+    overflow-x: hidden !important;
+}
+
+.menu_mobile {
+    overflow-y: hidden !important;
+    overflow-x: hidden !important;
+    position: sticky;
+} */
+
+
+/* navbar custom */
+
+/* .nav_container{
+    display: flex;
+    height: 100px;
+    padding: 0px 10px;
+}
+
+.img_div{
+    flex: 2;
+    box-sizing: border-box;
+    background-color: rgb(216, 216, 216);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.img_div a{
+    text-decoration: none;
+}
+
+.logo{
+    width: 100%;
+    object-fit: contain;
+    object-position: center;
+    height: 80px;
+    padding:0px 10px ;
+}
+
+.links_div{
+    flex: 4;
+    background-color: rgb(148, 148, 148);
+} */
+
+
