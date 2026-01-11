@@ -117,7 +117,9 @@ $pages = [
     'add-worker'    => './add-worker.php',       // admin add worker form (you’ll create)
     'workers-list'   => './workers-list.php',     // admin worker list (optional)
     'notifications' => './notifications.php',    // admin notifications (optional)
-    'reviews'       => './reviews.php',          // show client reviews on jobs
+    'reviews'       => './reviews.php',     
+    'profile'       => './profile.php', 
+    'logout'        => '../../auth/logout.php',    // show client reviews on jobs
 ];
 
 if (!array_key_exists($page, $pages)) {
@@ -198,7 +200,7 @@ $contentFile = __DIR__ . '/' . $pages[$page];
                 </div>
                 <!-- Keep same UI block; link can point to a future admin profile page if you add it -->
                 <div class="mt-2 text-right">
-                    <a href="admin-dashboard.php?page=dashboard" class="text-xs text-blue-600 font-medium hover:underline">
+                    <a href="admin-dashboard.php?page=profile" class="text-xs text-blue-600 font-medium hover:underline">
                         Manage Profile &rarr;
                     </a>
                 </div>
@@ -242,7 +244,7 @@ $contentFile = __DIR__ . '/' . $pages[$page];
                 </a>
 
                 <div class="pt-4 mt-4 border-t border-gray-100">
-                    <a href="../logout.php"
+                    <a href="../../auth/logout.php"
                        class="link flex items-center gap-3 px-4 py-3 rounded-lg text-red-500 hover:bg-red-50 transition-colors">
                         <span class="ph-duotone ph-sign-out text-xl"></span>
                         <span>Logout</span>

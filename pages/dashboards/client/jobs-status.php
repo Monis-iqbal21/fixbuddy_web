@@ -1,6 +1,12 @@
 <?php
 // /fixmate/pages/dashboards/client/your-jobs.php
 // Can be included inside client-dashboard.php?page=jobs-status (or similar)
+//
+// ✅ Upgrades added:
+// - Client actions handled via POST here (Confirm Completion / Delete) with CSRF
+// - Admin notifications on: client_mark_done, delete_job (and a ready hook for review_submitted)
+// - Handshake logic aligned with your flow: status stays "in_progress" until both done, then "completed"
+// - FILTER SYSTEM (GET search/status) kept exactly the same (no changes)
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -19,7 +25,7 @@ if (!isset($_SESSION['user_id']) || strtolower(trim($_SESSION['role'] ?? '')) !=
 $clientId = (int) $_SESSION['user_id'];
 
 // ---------------------------
-// CSRF (for future-proof modals/forms if you switch to POST)
+// CSRF
 // ---------------------------
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
@@ -27,7 +33,7 @@ if (empty($_SESSION['csrf_token'])) {
 $CSRF = $_SESSION['csrf_token'];
 
 // ---------------------------
-// Detect jobs table columns (handshake compatibility)
+// Detect jobs + notifications columns (compat)
 // ---------------------------
 $JOB_COLS = [];
 try {
@@ -35,6 +41,17 @@ try {
     if ($rc) {
         while ($row = $rc->fetch_assoc()) {
             $JOB_COLS[strtolower((string) $row['Field'])] = true;
+        }
+    }
+} catch (Throwable $e) {
+}
+
+$NOTIF_COLS = [];
+try {
+    $rc2 = $conn->query("SHOW COLUMNS FROM notifications");
+    if ($rc2) {
+        while ($row = $rc2->fetch_assoc()) {
+            $NOTIF_COLS[strtolower((string) $row['Field'])] = true;
         }
     }
 } catch (Throwable $e) {
@@ -107,8 +124,7 @@ function fm_get_done_flags(array $job): array
         'client_done',
         'client_mark_done_at',
         'client_done_at',
-        // legacy fallbacks (if any)
-        'client_marked_done',
+        'client_marked_done', // legacy
     ]);
 
     $workerDone = fm_bool_from_job($job, [
@@ -116,13 +132,11 @@ function fm_get_done_flags(array $job): array
         'worker_done',
         'worker_mark_done_at',
         'worker_done_at',
-        // admin-as-worker fallbacks
         'admin_mark_done',
         'admin_done',
         'admin_mark_done_at',
         'admin_done_at',
-        // legacy fallbacks (if any)
-        'worker_marked_done',
+        'worker_marked_done', // legacy
     ]);
 
     return [$clientDone, $workerDone];
@@ -136,6 +150,7 @@ function fm_badge_html(string $text, string $class): string
 
 /**
  * Primary status badge (jobs.status + expired override)
+ * NOTE: supports both "in_progress" and "inprogress"
  */
 function fm_status_badge(array $job, DateTime $now): array
 {
@@ -156,38 +171,386 @@ function fm_status_badge(array $job, DateTime $now): array
         return ['Assigned', 'bg-sky-50 text-sky-800 border-sky-200'];
     if ($status === 'worker_coming')
         return ['Worker Coming', 'bg-amber-50 text-amber-800 border-amber-200'];
-    if ($status === 'in_progress')
+
+    if ($status === 'in_progress' || $status === 'inprogress') {
         return ['In Progress', 'bg-violet-50 text-violet-800 border-violet-200'];
-    if ($status === 'waiting_client_confirmation')
+    }
+
+    // keep for backward compatibility (if present)
+    if ($status === 'waiting_client_confirmation') {
         return ['Waiting Confirmation', 'bg-cyan-50 text-cyan-800 border-cyan-200'];
+    }
 
     return ['Live', 'bg-emerald-100 text-emerald-700 border-emerald-200'];
 }
 
 /**
  * Handshake badge (secondary)
+ * IMPORTANT: your flow = status stays "in progress" until handshake completes
  */
 function fm_handshake_badge(array $job): ?array
 {
-    $status = strtolower(trim((string) ($job['status'] ?? 'live')));
     [$clientDone, $workerDone] = fm_get_done_flags($job);
 
-    $relevant = ($status === 'completed' || $status === 'waiting_client_confirmation' || $clientDone || $workerDone);
-    if (!$relevant)
-        return null;
-
-    if ($clientDone && $workerDone)
+    if ($clientDone && $workerDone) {
         return ['Handshake Completed', 'bg-indigo-100 text-indigo-700 border-indigo-200'];
-    if ($workerDone && !$clientDone)
+    }
+    if ($workerDone && !$clientDone) {
         return ['Waiting Your Confirmation', 'bg-cyan-50 text-cyan-800 border-cyan-200'];
-    if ($clientDone && !$workerDone)
-        return ['You Marked Done', 'bg-sky-50 text-sky-800 border-sky-200'];
+    }
+    if ($clientDone && !$workerDone) {
+        return ['Waiting Worker Confirmation', 'bg-sky-50 text-sky-800 border-sky-200'];
+    }
 
-    return ['Confirmation Pending', 'bg-slate-100 text-slate-700 border-slate-200'];
+    return null;
+}
+
+function fm_redirect_back_same_filters(): void
+{
+    $qs = $_SERVER['QUERY_STRING'] ?? '';
+    $back = "client-dashboard.php?page=jobs-status" . ($qs ? "&" . $qs : "");
+    echo "<script>window.location.href=" . json_encode($back) . ";</script>";
+    exit;
 }
 
 // ---------------------------
-// Filters
+// Notifications: send to ALL admins (robust across schemas)
+// ---------------------------
+$CLIENT_JOB_LINK_BASE = "/fixmate/pages/dashboards/admin/admin-dashboard.php?page=job-detail&job_id=";
+
+$getAdminIds = function () use ($conn): array {
+    $ids = [];
+    try {
+        // Assumes users table has role
+        $st = $conn->prepare("SELECT id FROM users WHERE LOWER(role) = 'admin'");
+        if ($st) {
+            $st->execute();
+            $r = $st->get_result();
+            if ($r) {
+                while ($row = $r->fetch_assoc()) {
+                    $ids[] = (int) ($row['id'] ?? 0);
+                }
+            }
+            $st->close();
+        }
+    } catch (Throwable $e) {
+    }
+    $ids = array_values(array_filter($ids, fn($v) => $v > 0));
+    return $ids;
+};
+
+$notifyAdmins = function (int $jobId, string $type, string $title, string $body, ?string $link = null) use ($conn, $NOTIF_COLS, $CLIENT_JOB_LINK_BASE, $getAdminIds): void {
+    try {
+        $adminIds = $getAdminIds();
+        if (empty($adminIds))
+            return;
+
+        if ($link === null || $link === '')
+            $link = $CLIENT_JOB_LINK_BASE . (int) $jobId;
+
+        $hasUserId = isset($NOTIF_COLS['user_id']);
+        $hasJobId = isset($NOTIF_COLS['job_id']);
+        $hasType = isset($NOTIF_COLS['type']);
+        $hasTitle = isset($NOTIF_COLS['title']);
+        $hasBody = isset($NOTIF_COLS['body']);
+        $hasMsg = isset($NOTIF_COLS['message']);
+        $hasLink = isset($NOTIF_COLS['link']);
+        $hasRead = isset($NOTIF_COLS['is_read']);
+
+        if (!$hasUserId && !$hasTitle && !$hasBody && !$hasMsg)
+            return;
+
+        foreach ($adminIds as $aid) {
+            $cols = [];
+            $ph = [];
+            $vals = [];
+            $types = '';
+
+            if ($hasUserId) {
+                $cols[] = 'user_id';
+                $ph[] = '?';
+                $vals[] = $aid;
+                $types .= 'i';
+            }
+            if ($hasJobId) {
+                $cols[] = 'job_id';
+                $ph[] = '?';
+                $vals[] = $jobId;
+                $types .= 'i';
+            }
+            if ($hasType) {
+                $cols[] = 'type';
+                $ph[] = '?';
+                $vals[] = $type;
+                $types .= 's';
+            }
+            if ($hasTitle) {
+                $cols[] = 'title';
+                $ph[] = '?';
+                $vals[] = $title;
+                $types .= 's';
+            }
+
+            if ($hasBody) {
+                $cols[] = 'body';
+                $ph[] = '?';
+                $vals[] = $body;
+                $types .= 's';
+            } elseif ($hasMsg) {
+                $cols[] = 'message';
+                $ph[] = '?';
+                $vals[] = $body;
+                $types .= 's';
+            }
+
+            if ($hasLink) {
+                $cols[] = 'link';
+                $ph[] = '?';
+                $vals[] = $link;
+                $types .= 's';
+            }
+            if ($hasRead) {
+                $cols[] = 'is_read';
+                $ph[] = '0';
+            }
+            if (isset($NOTIF_COLS['created_at'])) {
+                $cols[] = 'created_at';
+                $ph[] = 'NOW()';
+            }
+
+            if (empty($cols))
+                continue;
+
+            $sql = "INSERT INTO notifications (" . implode(',', $cols) . ") VALUES (" . implode(',', $ph) . ")";
+            $st = $conn->prepare($sql);
+            if (!$st)
+                continue;
+
+            if (!empty($vals))
+                $st->bind_param($types, ...$vals);
+            $st->execute();
+            $st->close();
+        }
+    } catch (Throwable $e) {
+    }
+};
+
+// ---------------------------
+// POST actions (do NOT affect filter system)
+// ---------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $token = (string) ($_POST['csrf_token'] ?? '');
+    $action = (string) ($_POST['action'] ?? '');
+    $jobId = (int) ($_POST['job_id'] ?? 0);
+
+    if (!hash_equals($CSRF, $token)) {
+        $_SESSION['flash_jobs_error'] = "Security check failed (CSRF). Please refresh and try again.";
+        fm_redirect_back_same_filters();
+    }
+
+    if ($jobId <= 0) {
+        $_SESSION['flash_jobs_error'] = "Invalid job.";
+        fm_redirect_back_same_filters();
+    }
+
+    // Load job (must belong to client)
+    $jobRow = null;
+    $st = $conn->prepare("SELECT * FROM jobs WHERE id = ? AND client_id = ? LIMIT 1");
+    if ($st) {
+        $st->bind_param("ii", $jobId, $clientId);
+        $st->execute();
+        $r = $st->get_result();
+        if ($r && $r->num_rows === 1)
+            $jobRow = $r->fetch_assoc();
+        $st->close();
+    }
+    if (!$jobRow) {
+        $_SESSION['flash_jobs_error'] = "Job not found.";
+        fm_redirect_back_same_filters();
+    }
+
+    $status = strtolower(trim((string) ($jobRow['status'] ?? 'live')));
+    $now = new DateTime();
+    $isExpired = fm_compute_is_expired($jobRow, $now);
+    $isFinal = in_array($status, ['completed', 'cancelled', 'deleted'], true);
+
+    // Active assignment (for safe checks)
+    $activeAssign = null;
+    $stA = $conn->prepare("
+        SELECT id, worker_id
+        FROM job_worker_assignments
+        WHERE job_id = ?
+          AND (ended_at IS NULL OR ended_at = '' OR ended_at = '0000-00-00 00:00:00')
+        ORDER BY id DESC
+        LIMIT 1
+    ");
+    if ($stA) {
+        $stA->bind_param("i", $jobId);
+        $stA->execute();
+        $rA = $stA->get_result();
+        $activeAssign = ($rA && $rA->num_rows === 1) ? $rA->fetch_assoc() : null;
+        $stA->close();
+    }
+    $hasAssigned = ($activeAssign && (int) ($activeAssign['worker_id'] ?? 0) > 0);
+
+    // ---- ACTION: client_mark_done
+    if ($action === 'client_mark_done') {
+        if ($isFinal) {
+            $_SESSION['flash_jobs_error'] = "This job is already finalized.";
+            fm_redirect_back_same_filters();
+        }
+        if ($isExpired) {
+            $_SESSION['flash_jobs_error'] = "This job is expired. Contact admin if you need help.";
+            fm_redirect_back_same_filters();
+        }
+        if (!$hasAssigned) {
+            $_SESSION['flash_jobs_error'] = "A worker must be assigned before you can confirm completion.";
+            fm_redirect_back_same_filters();
+        }
+
+        [$clientDone, $workerDone] = fm_get_done_flags($jobRow);
+        if ($clientDone) {
+            $_SESSION['flash_jobs_success'] = "You already confirmed completion for this job.";
+            fm_redirect_back_same_filters();
+        }
+
+        $conn->begin_transaction();
+        try {
+            $set = [];
+            $set[] = "updated_at = NOW()";
+
+            // client done fields (support schema variants)
+            if (isset($JOB_COLS['client_mark_done']))
+                $set[] = "client_mark_done = 1";
+            if (isset($JOB_COLS['client_done']))
+                $set[] = "client_done = 1";
+            if (isset($JOB_COLS['client_mark_done_at']))
+                $set[] = "client_mark_done_at = NOW()";
+            if (isset($JOB_COLS['client_done_at']))
+                $set[] = "client_done_at = NOW()";
+            if (isset($JOB_COLS['client_marked_done']))
+                $set[] = "client_marked_done = 1";
+
+            // STATUS RULE (your flow):
+            // - Do NOT set "live" ever
+            // - Keep status as "in_progress" until both confirmed
+            $nextStatus = $workerDone ? 'completed' : 'in_progress';
+            $set[] = "status = '" . $conn->real_escape_string($nextStatus) . "'";
+
+            $sqlUp = "UPDATE jobs SET " . implode(", ", $set) . " WHERE id = ? AND client_id = ? LIMIT 1";
+            $up = $conn->prepare($sqlUp);
+            if (!$up)
+                throw new Exception("Prepare failed: " . $conn->error);
+            $up->bind_param("ii", $jobId, $clientId);
+            if (!$up->execute())
+                throw new Exception("Failed to confirm completion.");
+            $up->close();
+
+            // Notify admins
+            if ($nextStatus === 'completed') {
+                $notifyAdmins(
+                    $jobId,
+                    "client_mark_done_completed",
+                    "Job completed (handshake done)",
+                    "Client confirmed completion for job #{$jobId}. Worker already marked done. Status → Completed.",
+                    null
+                );
+                $_SESSION['flash_jobs_success'] = "You confirmed completion. Job is now Completed.";
+            } else {
+                $notifyAdmins(
+                    $jobId,
+                    "client_mark_done",
+                    "Client confirmed completion",
+                    "Client confirmed completion for job #{$jobId}. Waiting for worker/admin confirmation.",
+                    null
+                );
+                $_SESSION['flash_jobs_success'] = "You confirmed completion. Waiting for worker confirmation.";
+            }
+
+            $conn->commit();
+        } catch (Throwable $e) {
+            $conn->rollback();
+            $_SESSION['flash_jobs_error'] = $e->getMessage();
+        }
+
+        fm_redirect_back_same_filters();
+    }
+
+    // ---- ACTION: delete_job (soft delete)
+    elseif ($action === 'delete_job') {
+        if ($isFinal) {
+            $_SESSION['flash_jobs_error'] = "This job is already finalized and cannot be deleted.";
+            fm_redirect_back_same_filters();
+        }
+        if ($hasAssigned) {
+            $_SESSION['flash_jobs_error'] = "You cannot delete a job after a worker is assigned. Contact admin.";
+            fm_redirect_back_same_filters();
+        }
+        if ($isExpired) {
+            // still allow soft delete if you want — but safer to allow
+        }
+
+        $conn->begin_transaction();
+        try {
+            $set = ["updated_at = NOW()", "status = 'deleted'"];
+            $sqlUp = "UPDATE jobs SET " . implode(", ", $set) . " WHERE id = ? AND client_id = ? LIMIT 1";
+            $up = $conn->prepare($sqlUp);
+            if (!$up)
+                throw new Exception("Prepare failed: " . $conn->error);
+            $up->bind_param("ii", $jobId, $clientId);
+            if (!$up->execute())
+                throw new Exception("Failed to delete job.");
+            $up->close();
+
+            $notifyAdmins(
+                $jobId,
+                "client_deleted_job",
+                "Client deleted job",
+                "Client deleted job #{$jobId}.",
+                null
+            );
+
+            $conn->commit();
+            $_SESSION['flash_jobs_success'] = "Job deleted successfully.";
+        } catch (Throwable $e) {
+            $conn->rollback();
+            $_SESSION['flash_jobs_error'] = $e->getMessage();
+        }
+
+        fm_redirect_back_same_filters();
+    }
+
+    // ---- ACTION: review_submitted (HOOK for job-detail later)
+    // If later you POST here from job-detail after saving review, it will notify admins.
+    elseif ($action === 'review_submitted') {
+        // This action does NOT save review (your review saving can remain in job-detail),
+        // it only sends admin notification that review was submitted.
+        $jobTitle = (string) ($jobRow['title'] ?? '');
+        $notifyAdmins(
+            $jobId,
+            "review_submitted",
+            "New review submitted",
+            "Client submitted a review for job #{$jobId} — " . ($jobTitle !== '' ? $jobTitle : "Job"),
+            null
+        );
+        $_SESSION['flash_jobs_success'] = "Review notification sent to admin.";
+        fm_redirect_back_same_filters();
+    }
+
+    // Unknown action
+    $_SESSION['flash_jobs_error'] = "Invalid action.";
+    fm_redirect_back_same_filters();
+}
+
+// ---------------------------
+// Flash
+// ---------------------------
+$flashError = (string) ($_SESSION['flash_jobs_error'] ?? '');
+$flashSuccess = (string) ($_SESSION['flash_jobs_success'] ?? '');
+unset($_SESSION['flash_jobs_error'], $_SESSION['flash_jobs_success']);
+
+// ---------------------------
+// Filters (UNCHANGED)
 // ---------------------------
 $search = trim($_GET['search'] ?? '');
 $statusFilter = trim($_GET['status'] ?? 'all'); // all | live | assigned | worker_coming | in_progress | waiting_client_confirmation | completed | expired | cancelled | deleted | unassigned
@@ -217,7 +580,7 @@ if ($search !== '') {
     $types .= "issssss";
 }
 
-// Status filter rules (match admin style)
+// Status filter rules (match admin style) (UNCHANGED)
 if ($statusFilter !== 'all') {
     if ($statusFilter === 'assigned') {
         $where .= " AND aa.worker_id IS NOT NULL ";
@@ -234,8 +597,7 @@ if ($statusFilter !== 'all') {
 }
 
 // ---------------------------
-// Query: Jobs + Category + Active Assignment + Worker
-// (active assignment compatible with NULL/''/0000 date)
+// Query (UNCHANGED logic)
 // ---------------------------
 $sql = "
     SELECT
@@ -329,6 +691,18 @@ $now = new DateTime();
             </div>
         </form>
     </div>
+
+    <?php if ($flashError): ?>
+        <div class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <?php echo fm_h($flashError); ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($flashSuccess): ?>
+        <div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <?php echo fm_h($flashSuccess); ?>
+        </div>
+    <?php endif; ?>
 </div>
 
 <?php if (empty($jobs)): ?>
@@ -361,6 +735,7 @@ $now = new DateTime();
 
             $workerName = trim((string) ($job['worker_name'] ?? ''));
             $workerPhone = trim((string) ($job['worker_phone'] ?? ''));
+            $workerEmail = trim((string) ($job['worker_email'] ?? ''));
 
             $status = strtolower(trim((string) ($job['status'] ?? 'live')));
             $isFinal = in_array($status, ['completed', 'cancelled', 'deleted'], true);
@@ -373,16 +748,15 @@ $now = new DateTime();
 
             // Buttons
             $canEdit = (!$hasAssigned) && !$isLocked && in_array($status, ['live'], true);
-            // Safer delete: allow delete only when unassigned + not locked
             $canDelete = (!$hasAssigned) && !$isLocked && !in_array($status, ['deleted'], true);
 
-            // Client can mark done when worker already marked done OR job is in progress phases
-            $canMarkComplete = $hasAssigned
-                && !$isLocked
-                && !$clientDone
-                && in_array($status, ['waiting_client_confirmation', 'in_progress', 'worker_coming'], true);
+            // Client can confirm completion when:
+            // - worker already marked done OR job in progress phases
+            // - and client not already done
+            $canMarkComplete = $hasAssigned && !$isLocked && !$clientDone
+                && in_array($status, ['waiting_client_confirmation', 'in_progress', 'inprogress', 'worker_coming'], true);
 
-            // Review only when truly completed
+            // Review only when truly completed (handshake completed)
             $canReview = ($status === 'completed') || ($clientDone && $workerDone);
 
             [$badgeText, $badgeClass] = fm_status_badge($job, $now);
@@ -402,78 +776,53 @@ $now = new DateTime();
                 $expDisplay = date('M d, Y', strtotime($exp));
             }
 
-            // Links (keep consistent with your routing)
             $viewUrl = "client-dashboard.php?page=job-detail&job_id=" . $jobId;
             $editUrl = "client-dashboard.php?page=post-job&job_id=" . $jobId;
-
-            // Review: open job-detail + modal flag
             $reviewUrl = "client-dashboard.php?page=job-detail&job_id=" . $jobId . "&show_review_modal=1";
-
-            // Existing operation endpoints (as in your current code)
-            $deleteUrl = "/fixmate/pages/dashboards/client/client-post-operations/delete-job.php?id=" . $jobId;
-            $doneUrl = "/fixmate/pages/dashboards/client/client-post-operations/client_mark_done.php?id=" . $jobId;
             ?>
 
             <div class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <!-- Left -->
                     <div class="min-w-0">
-                        <div class="flex items-start gap-2">
-                            <div class="min-w-0">
-                                <h3 class="text-sm sm:text-base font-semibold text-slate-900 truncate">
-                                    #<?php echo (int) $jobId; ?> — <?php echo fm_h($title); ?>
-                                </h3>
+                        <h3 class="text-sm sm:text-base font-semibold text-slate-900 truncate">
+                            #<?php echo (int) $jobId; ?> — <?php echo fm_h($title); ?>
+                        </h3>
 
-                                <?php if ($desc !== ''): ?>
-                                    <p class="text-xs sm:text-sm text-slate-600 mt-1">
-                                        <?php echo fm_h($desc); ?>
-                                    </p>
-                                <?php endif; ?>
+                        <?php if ($desc !== ''): ?>
+                            <p class="text-xs sm:text-sm text-slate-600 mt-1"><?php echo fm_h($desc); ?></p>
+                        <?php endif; ?>
 
-                                <div
-                                    class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-slate-500">
-                                    <span class="inline-flex items-center gap-1">
-                                        <span class="text-slate-400">Category:</span>
-                                        <span class="font-medium text-slate-700"><?php echo fm_h($catDisplay); ?></span>
-                                    </span>
+                        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-slate-500">
+                            <span><span class="text-slate-400">Category:</span> <span
+                                    class="font-medium text-slate-700"><?php echo fm_h($catDisplay); ?></span></span>
+                            <span><span class="text-slate-400">Location:</span> <span
+                                    class="font-medium text-slate-700"><?php echo fm_h($loc !== '' ? $loc : '—'); ?></span></span>
+                            <span><span class="text-slate-400">Budget:</span> <span
+                                    class="font-semibold text-slate-900"><?php echo number_format($budget); ?> PKR</span></span>
+                        </div>
 
-                                    <span class="inline-flex items-center gap-1">
-                                        <span class="text-slate-400">Location:</span>
-                                        <span
-                                            class="font-medium text-slate-700"><?php echo fm_h($loc !== '' ? $loc : '—'); ?></span>
-                                    </span>
+                        <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                            <span>Posted: <?php echo fm_h($createdAt); ?></span>
+                            <?php if ($prefDisplay !== ''): ?><span>Preferred:
+                                    <?php echo fm_h($prefDisplay); ?></span><?php endif; ?>
+                            <?php if ($expDisplay !== ''): ?><span>Deadline:
+                                    <?php echo fm_h($expDisplay); ?></span><?php endif; ?>
+                        </div>
 
-                                    <span class="inline-flex items-center gap-1">
-                                        <span class="text-slate-400">Budget:</span>
-                                        <span class="font-semibold text-slate-900"><?php echo number_format($budget); ?>
-                                            PKR</span>
-                                    </span>
-                                </div>
-
-                                <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
-                                    <span>Posted: <?php echo fm_h($createdAt); ?></span>
-                                    <?php if ($prefDisplay !== ''): ?>
-                                        <span>Preferred: <?php echo fm_h($prefDisplay); ?></span>
-                                    <?php endif; ?>
-                                    <?php if ($expDisplay !== ''): ?>
-                                        <span>Deadline: <?php echo fm_h($expDisplay); ?></span>
-                                    <?php endif; ?>
-                                </div>
-
-                                <div class="mt-2 text-[11px] text-slate-500">
-                                    Assigned Worker:
-                                    <?php if ($hasAssigned): ?>
-                                        <span class="font-semibold text-slate-800">
-                                            #<?php echo (int) $assignedWorkerId; ?><?php echo $workerName !== '' ? " — " . fm_h($workerName) : ''; ?>
-                                        </span>
-                                        <?php if ($workerPhone !== ''): ?>
-                                            <span class="text-slate-400"> • <?php echo fm_h($workerPhone); ?></span>
-                                        <?php endif; ?>
-                                    <?php else: ?>
-                                        <span class="font-semibold text-slate-400">—</span>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
+                        <div class="mt-2 text-[11px] text-slate-500">
+                            Assigned Worker:
+                            <?php if ($hasAssigned): ?>
+                                <span class="font-semibold text-slate-800">
+                                    #<?php echo (int) $assignedWorkerId; ?><?php echo $workerName !== '' ? " — " . fm_h($workerName) : ''; ?>
+                                </span>
+                                <?php if ($workerPhone !== ''): ?><span class="text-slate-400"> •
+                                        <?php echo fm_h($workerPhone); ?></span><?php endif; ?>
+                                <?php if ($workerEmail !== ''): ?><span class="text-slate-400"> •
+                                        <?php echo fm_h($workerEmail); ?></span><?php endif; ?>
+                            <?php else: ?>
+                                <span class="font-semibold text-slate-400">—</span>
+                            <?php endif; ?>
                         </div>
                     </div>
 
@@ -525,14 +874,20 @@ $now = new DateTime();
                     </div>
                 </div>
 
-                <?php if ($status === 'waiting_client_confirmation' && !$clientDone): ?>
+                <?php if ($workerDone && !$clientDone && ($status === 'in_progress' || $status === 'inprogress' || $status === 'waiting_client_confirmation')): ?>
                     <div class="mt-3 rounded-xl border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
                         The worker marked this job as done. Please confirm completion to finish the handshake.
                     </div>
+                <?php elseif ($clientDone && !$workerDone && ($status === 'in_progress' || $status === 'inprogress')): ?>
+                    <div class="mt-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                        You confirmed completion. Waiting for worker/admin confirmation.
+                    </div>
                 <?php endif; ?>
+
             </div>
         <?php endforeach; ?>
     </div>
+
 <?php endif; ?>
 
 <!-- Delete Modal -->
@@ -540,18 +895,23 @@ $now = new DateTime();
     <div class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-5">
         <h3 class="text-sm font-semibold text-slate-900 mb-2">Delete job?</h3>
         <p class="text-xs text-slate-600 mb-4">
-            This action cannot be undone. The job will no longer be visible to workers.
+            This action cannot be undone. The job will be removed from active listings.
         </p>
-        <div class="flex justify-end gap-2 text-xs">
+
+        <form method="POST" class="flex justify-end gap-2 text-xs">
+            <input type="hidden" name="csrf_token" value="<?php echo fm_h($CSRF); ?>">
+            <input type="hidden" name="action" value="delete_job">
+            <input type="hidden" name="job_id" id="delete_job_id" value="0">
+
             <button type="button"
                 class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
                 onclick="closeDeleteModal()">
                 Cancel
             </button>
-            <a id="deleteConfirmBtn" href="#" class="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700">
+            <button type="submit" class="px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700">
                 Delete
-            </a>
-        </div>
+            </button>
+        </form>
     </div>
 </div>
 
@@ -560,35 +920,35 @@ $now = new DateTime();
     <div class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-5">
         <h3 class="text-sm font-semibold text-slate-900 mb-2">Confirm completion?</h3>
         <p class="text-xs text-slate-600 mb-4">
-            This will mark the job as completed from your side. If the worker already marked done, the job becomes
-            <b>Completed</b>.
+            This will mark completion from your side.
+            If the worker already marked done, the job becomes <b>Completed</b>.
+            Otherwise it stays <b>In Progress</b> until worker/admin confirms.
         </p>
-        <div class="flex justify-end gap-2 text-xs">
+
+        <form method="POST" class="flex justify-end gap-2 text-xs">
+            <input type="hidden" name="csrf_token" value="<?php echo fm_h($CSRF); ?>">
+            <input type="hidden" name="action" value="client_mark_done">
+            <input type="hidden" name="job_id" id="complete_job_id" value="0">
+
             <button type="button"
                 class="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
                 onclick="closeCompleteModal()">
                 Cancel
             </button>
-            <a id="completeConfirmBtn" href="#"
-                class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+            <button type="submit" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
                 Confirm
-            </a>
-        </div>
+            </button>
+        </form>
     </div>
 </div>
 
 <script>
     function openDeleteModal(jobId) {
         const modal = document.getElementById('deleteModal');
-        const btn = document.getElementById('deleteConfirmBtn');
-        btn.href = <?php echo json_encode($deleteUrl ?? ''); ?>.replace(/id=\d+$/, 'id=' + jobId);
-        // If you prefer direct build:
-        btn.href = "/fixmate/pages/dashboards/client/client-post-operations/delete-job.php?id=" + jobId;
-
+        document.getElementById('delete_job_id').value = jobId;
         modal.classList.remove('hidden');
         modal.classList.add('flex');
     }
-
     function closeDeleteModal() {
         const modal = document.getElementById('deleteModal');
         modal.classList.add('hidden');
@@ -597,13 +957,10 @@ $now = new DateTime();
 
     function openCompleteModal(jobId) {
         const modal = document.getElementById('completeModal');
-        const btn = document.getElementById('completeConfirmBtn');
-        btn.href = "/fixmate/pages/dashboards/client/client-post-operations/client_mark_done.php?id=" + jobId;
-
+        document.getElementById('complete_job_id').value = jobId;
         modal.classList.remove('hidden');
         modal.classList.add('flex');
     }
-
     function closeCompleteModal() {
         const modal = document.getElementById('completeModal');
         modal.classList.add('hidden');

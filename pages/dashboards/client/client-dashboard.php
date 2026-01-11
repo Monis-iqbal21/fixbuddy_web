@@ -114,6 +114,7 @@ $pages = [
     'notifications' => './notifications.php',
     'messages'      => './messages.php',
     'job-detail'    => './job-detail.php',
+    'logout'        => '../auth/logout.php',
 ];
 
 if (!array_key_exists($page, $pages)) {
@@ -239,7 +240,7 @@ $contentFile = __DIR__ . '/' . $pages[$page];
                 </a>
 
                 <div class="pt-4 mt-4 border-t border-gray-100">
-                    <a href="../logout.php" 
+                    <a href="../../auth/logout.php" 
                        class="link flex items-center gap-3 px-4 py-3 rounded-lg text-red-500 hover:bg-red-50 transition-colors">
                         <span class="ph-duotone ph-sign-out text-xl"></span>
                         <span>Logout</span>

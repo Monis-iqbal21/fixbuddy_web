@@ -35,7 +35,7 @@ $contactUrl  = '/fixmate/pages/contact.php';
 
 $loginUrl    = '/fixmate/pages/auth/login.php';
 $registerUrl = '/fixmate/pages/auth/register.php';
-$logoutUrl   = '/fixmate/pages/logout.php';
+$logoutUrl   = '/fixmate/pages/auth/logout.php';
 
 $clientDashboard = '/fixmate/pages/dashboards/client/client-dashboard.php';
 $adminDashboard  = '/fixmate/pages/dashboards/admin/admin-dashboard.php';
