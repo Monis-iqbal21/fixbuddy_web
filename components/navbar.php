@@ -64,11 +64,12 @@ function fm_active($needle) {
 }
 ?>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdn.tailwindcss.com"></script>
 
 <style>
     /* Uses your existing :root variables. Fallbacks just in case */
     .fm-nav {
-        background: var(--primary-dark, #1E293B);
+        background: var(--primary-dark, #1E293B) !important;
         position: sticky;
         top: 0;
         z-index: 50;
@@ -108,7 +109,7 @@ function fm_active($needle) {
     }
 
     .fm-link {
-        color: rgba(255,255,255,0.85);
+        color: rgba(255,255,255,0.85) !important;
         font-weight: 600;
         font-size: 14px;
         text-decoration:none;
@@ -119,13 +120,13 @@ function fm_active($needle) {
     }
 
     .fm-link:hover {
-        background: rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.06) !important;
         color: #fff;
     }
 
     .fm-active {
         color: #fff;
-        background: rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.08) !important;
     }
 
     .fm-btn {
@@ -140,24 +141,24 @@ function fm_active($needle) {
         text-decoration:none;
         transition: all .2s ease;
         white-space: nowrap;
-        border: 1px solid transparent;
+        border: 1px solid transparent !important;
         cursor: pointer;
-        background: transparent;
+        background: transparent !important;
     }
 
     .fm-btn-primary {
-        background: var(--primary-color);
-        color: var(--white);
+        background: var(--primary-color) !important;
+        color: var(--white) !important;
     }
-    .fm-btn-primary:hover { opacity: .92; transform: translateY(-1px); }
+    .fm-btn-primary:hover { opacity: .92 !important; transform: translateY(-1px); }
 
     .fm-btn-outline {
-        border-color: var(--primary-color);
-        color: var(--primary-color);
-        background: transparent;
+        border-color: var(--primary-color) !important;
+        color: var(--primary-color) !important;
+        background: transparent !important;
     }
     .fm-btn-outline:hover {
-        background: rgba(255,107,53,0.12);
+        background: rgba(255,107,53,0.12) !important;
     }
 
     /* RIGHT AREA split into: greeting(always visible on <=700) + actions(hidden on <=700) */
@@ -171,14 +172,14 @@ function fm_active($needle) {
         display:flex;
         align-items:center;
         gap: 6px;
-        color: rgba(255,255,255,0.92);
+        color: rgba(255,255,255,0.92) !important;
         font-size: 13px;
         font-weight: 700;
         white-space: nowrap;
     }
 
     .fm-user-greeting small {
-        color: rgba(255,255,255,0.65);
+        color: rgba(255,255,255,0.65) !important;
         font-weight: 700;
     }
 
@@ -194,21 +195,21 @@ function fm_active($needle) {
         width: 42px;
         height: 42px;
         border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12) !important;
+        background: rgba(255,255,255,0.06) !important;
         color: #fff;
         align-items:center;
         justify-content:center;
         cursor:pointer;
         transition: all .2s ease;
     }
-    .fm-burger:hover { background: rgba(255,255,255,0.1); }
+    .fm-burger:hover { background: rgba(255,255,255,0.1) !important; }
 
     /* Mobile drawer */
     .fm-mobile {
         display:none;
-        background: var(--dark-bg);
-        border-top: 1px solid rgba(255,255,255,0.08);
+        background: var(--dark-bg) !important;
+        border-top: 1px solid rgba(255,255,255,0.08) !important;
         padding: 12px 16px 18px;
     }
 
@@ -312,7 +313,7 @@ function fm_active($needle) {
 
             <a class="fm-link" href="<?php echo $contactUrl; ?>">Contact Us</a>
 
-            <div style="height:1px; background: rgba(255,255,255,0.08); margin: 6px 0;"></div>
+            <div style="height:1px; background: rgba(255,255,255,0.08) !important; margin: 6px 0;"></div>
 
             <?php if ($isLoggedIn): ?>
                 <a class="fm-btn fm-btn-primary" href="<?php echo htmlspecialchars($dashboardUrl); ?>">

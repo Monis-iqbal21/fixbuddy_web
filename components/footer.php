@@ -327,9 +327,9 @@ $logoPath = '/fixmate/assets/images/logo_fixmate.png';
                 &copy;<?php echo date('Y'); ?> <?php echo htmlspecialchars($appName); ?>. All Rights Reserved.
             </div>
             <div class="fm-footer-bottom-links">
-                <a href="/fixmate/pages/terms.php">Terms of Service</a>
+                <a href="/fixmate/pages/termsAndPrivacy.php#tos">Terms of Service</a>
                 <span class="fm-separator">|</span>
-                <a href="/fixmate/pages/policy.php">Privacy Policy</a>
+                <a href="/fixmate/pages/termsAndPrivacy.php#privacy">Privacy Policy</a>
             </div>
         </div>
 

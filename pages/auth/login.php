@@ -140,6 +140,20 @@ if (isset($_POST['login_btn'])) {
             --bg-color: #F8FAFC;
         }
     </style>
+    <style>
+        :root {
+            --primary-color: #ff6b35;
+            /* Orange accent */
+            --dark-bg: #13151f;
+            /* Dark Navy/Black */
+            --card-dark: #1c1f2e;
+            /* Slightly lighter dark for cards */
+            --light-bg: #f9f9f9;
+            --text-dark: #1f2937;
+            --text-gray: #6b7280;
+            --white: #ffffff;
+        }
+    </style>
 </head>
 
 <body class="bg-[var(--primary-dark)]">

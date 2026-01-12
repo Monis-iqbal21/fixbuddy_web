@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 09, 2026 at 11:06 PM
+-- Generation Time: Jan 12, 2026 at 04:47 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -29,20 +29,21 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `categories` (
   `id` int(10) UNSIGNED NOT NULL,
-  `name` varchar(80) NOT NULL
+  `name` varchar(80) NOT NULL,
+  `description` varchar(200) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `categories`
 --
 
-INSERT INTO `categories` (`id`, `name`) VALUES
-(3, 'AC Technician'),
-(4, 'Car Mechanic'),
-(1, 'Electrician'),
-(5, 'Flooring'),
-(6, 'Pest Control'),
-(2, 'Plumber');
+INSERT INTO `categories` (`id`, `name`, `description`) VALUES
+(1, 'Electrician', 'Certified electricians for safe wiring, fault repairs, lighting installation, switch/socket replacement, breaker issues, and power load management—ensuring your home stays protected and fully function'),
+(2, 'Plumber', 'Professional plumbing for leak detection, pipe repairs, drainage cleaning, fixture installation, water tank connections, and bathroom/kitchen maintenance—delivering smooth water flow with long-term re'),
+(3, 'AC Technician', 'Expert AC technicians for installation, seasonal servicing, gas charging, cooling performance checks, filter cleaning, and quick troubleshooting—keeping your space comfortable with efficient and relia'),
+(4, 'Car Mechanic', 'Skilled car mechanics for routine maintenance, engine diagnostics, oil and fluid changes, brake and suspension repairs, battery issues, and emergency breakdown support—so your vehicle runs smoothly.'),
+(5, 'Flooring', 'Flooring specialists for tile, marble, laminate, vinyl, and wood work including installation, polishing, repairs, re-grouting, and leveling—giving your floors a clean finish and durable surface.'),
+(6, 'Pest Control', 'Safe pest control services for termites, cockroaches, ants, mosquitoes, and rodents using planned treatments, sealing, and prevention—protecting your home with effective, family-friendly solutions.');
 
 -- --------------------------------------------------------
 

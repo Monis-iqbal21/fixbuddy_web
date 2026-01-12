@@ -24,6 +24,20 @@ $loginUrl      = '/fixmate/pages/login.php';
     <!-- Phosphor Icons -->
     <link rel="stylesheet" href="https://unpkg.com/phosphor-icons@1.4.2/src/css/phosphor.css">
     <script src="https://unpkg.com/phosphor-icons"></script>
+    <style>
+        :root {
+            --primary-color: #ff6b35;
+            /* Orange accent */
+            --dark-bg: #13151f;
+            /* Dark Navy/Black */
+            --card-dark: #1c1f2e;
+            /* Slightly lighter dark for cards */
+            --light-bg: #f9f9f9;
+            --text-dark: #1f2937;
+            --text-gray: #6b7280;
+            --white: #ffffff;
+        }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
 
