@@ -424,7 +424,7 @@ function fm_page_url(array $qs, int $p): string
                                            class="text-xs px-3 py-1 rounded-md border border-slate-200 text-slate-700 hover:bg-white">
                                             View Job
                                         </a>
-                                        <?php if ($workerId > 0): ?>
+                                        <!-- <?php if ($workerId > 0): ?>
                                             <a href="admin-dashboard.php?page=worker-detail&worker_id=<?php echo $workerId; ?>"
                                                class="text-xs px-3 py-1 rounded-md border border-slate-200 text-slate-700 hover:bg-white">
                                                 View Worker
@@ -435,7 +435,7 @@ function fm_page_url(array $qs, int $p): string
                                                class="text-xs px-3 py-1 rounded-md border border-slate-200 text-slate-700 hover:bg-white">
                                                 View Client
                                             </a>
-                                        <?php endif; ?>
+                                        <?php endif; ?> -->
                                     </div>
                                 </div>
                             </div>

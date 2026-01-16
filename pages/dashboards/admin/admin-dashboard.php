@@ -175,7 +175,7 @@ $contentFile = __DIR__ . '/' . $pages[$page];
 
         <div class="h-16 flex items-center px-6 border-b border-gray-100">
             <a href="/fixmate/" class="flex items-center gap-2">
-                <img src="/fixmate/assets/images/fixmate_dark.png" alt="FixMate" class="h-8 w-auto object-contain">
+                <img src="/fixmate/assets/images/fix_buddy_logo.png" alt="FixMate" class="h-8 w-auto object-contain">
             </a>
             <button onclick="closeSidebar()" class="ml-auto lg:hidden text-gray-500 hover:text-red-500">
                 <span class="ph ph-x text-2xl"></span>

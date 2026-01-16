@@ -33,33 +33,6 @@ if (!empty($_POST['job_id']))
 // Redirect key (optional)
 $redirectKeyInitial = $_GET['redirect'] ?? ($_POST['redirect'] ?? '');
 
-// Karachi Areas
-$karachi_areas = [
-  "DHA Phase 1",
-  "DHA Phase 2",
-  "DHA Phase 3",
-  "DHA Phase 4",
-  "DHA Phase 5",
-  "DHA Phase 6",
-  "DHA Phase 7",
-  "DHA Phase 8",
-  "Clifton",
-  "Saddar",
-  "Gulshan-e-Iqbal",
-  "Gulistan-e-Johar",
-  "North Nazimabad",
-  "Nazimabad",
-  "Federal B Area",
-  "PECHS",
-  "Bahria Town",
-  "Malir Cantt",
-  "Korangi",
-  "Landhi",
-  "Liaquatabad",
-  "Lyari",
-  "Shah Faisal Colony"
-];
-
 // helper: redirect back with flash + keep query
 function fm_register_back(string $msg, array $data, int $jobId, string $redirectKeyInitial)
 {
@@ -94,11 +67,13 @@ if (isset($_POST['register_btn'])) {
   $password = $_POST['password'] ?? '';
   $cpassword = $_POST['cpassword'] ?? '';
 
+  // Fields hidden/optional for now
   $address = trim($_POST['address'] ?? '');
   $area = trim($_POST['area'] ?? '');
   $city = "Karachi";
-  $phone = trim($_POST['phone'] ?? '');
   $cnic = trim($_POST['cnic'] ?? '');
+
+  $phone = trim($_POST['phone'] ?? '');
 
   $redirectKey = $_POST['redirect'] ?? ($_GET['redirect'] ?? '');
 
@@ -108,8 +83,9 @@ if (isset($_POST['register_btn'])) {
   if ($name === '') {
     fm_register_back("Name is required!", $sticky, $jobId, $redirectKeyInitial);
   }
-  if ($area === '' || $phone === '') {
-    fm_register_back("Please fill all required fields (Area, Phone).", $sticky, $jobId, $redirectKeyInitial);
+  // Phone is required, Area is commented out so we removed it from check
+  if ($phone === '') {
+    fm_register_back("Phone Number is required.", $sticky, $jobId, $redirectKeyInitial);
   }
   if (!preg_match("/^03[0-9]{9}$/", $phone)) {
     fm_register_back("Invalid Phone Number! Must start with 03 and have 11 digits.", $sticky, $jobId, $redirectKeyInitial);
@@ -123,9 +99,13 @@ if (isset($_POST['register_btn'])) {
   if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
     fm_register_back("Invalid email format!", $sticky, $jobId, $redirectKeyInitial);
   }
+
+  // CNIC validation commented out as field is hidden/optional
+  /*
   if ($cnic !== '' && !preg_match("/^[0-9]{5}-[0-9]{7}-[0-9]{1}$/", $cnic)) {
     fm_register_back("Invalid CNIC format! Use XXXXX-XXXXXXX-X", $sticky, $jobId, $redirectKeyInitial);
   }
+  */
 
   // escape
   $db_name = $conn->real_escape_string($name);
@@ -136,22 +116,24 @@ if (isset($_POST['register_btn'])) {
   $db_phone = $conn->real_escape_string($phone);
   $db_cnic = $cnic !== '' ? $conn->real_escape_string($cnic) : null;
 
-  // duplicates
+  // 1. Check if PHONE already exists
+  $checkPhone = $conn->query("SELECT id FROM users WHERE phone='$db_phone' LIMIT 1");
+  if ($checkPhone && $checkPhone->num_rows > 0) {
+    fm_register_back("Phone number already exists!", $sticky, $jobId, $redirectKeyInitial);
+  }
+
+  // 2. Check if EMAIL already exists (only if user provided one)
+  // Logic: Phone is new (passed check 1), but email might be taken by someone else
   if ($db_email) {
-    $checkSql = "SELECT id FROM users WHERE phone='$db_phone' OR email='$db_email' LIMIT 1";
-  } else {
-    $checkSql = "SELECT id FROM users WHERE phone='$db_phone' LIMIT 1";
+    $checkEmail = $conn->query("SELECT id FROM users WHERE email='$db_email' LIMIT 1");
+    if ($checkEmail && $checkEmail->num_rows > 0) {
+      fm_register_back("This email is already registered with another account.", $sticky, $jobId, $redirectKeyInitial);
+    }
   }
 
-  $check = $conn->query($checkSql);
-  if ($check && $check->num_rows > 0) {
-    fm_register_back($db_email ? "Phone or Email already exists!" : "Phone already exists!", $sticky, $jobId, $redirectKeyInitial);
-  }
-
-  // profile image (optional)
+  // profile image (optional - keeping code but field is hidden in HTML)
   $profileImagePath = null;
   if (!empty($_FILES['profile_image']['name'])) {
-
     $uploadDir = __DIR__ . '/../../uploads/profile_images/';
     if (!is_dir($uploadDir))
       mkdir($uploadDir, 0777, true);
@@ -239,8 +221,10 @@ if (isset($_POST['register_btn'])) {
   <style>
     :root {
       --primary-dark: #1E293B;
-      --secondary-color: #F97316;
-      --btn-color: #06B6D4;
+      --secondary-color: #ff6b35;
+      /* Orange matched from SS */
+      --btn-color: #ff6b35;
+      /* Orange Button */
       --bg-color: #F8FAFC;
     }
 
@@ -251,19 +235,16 @@ if (isset($_POST['register_btn'])) {
     }
   </style>
   <style>
-        :root {
-            --primary-color: #ff6b35;
-            /* Orange accent */
-            --dark-bg: #13151f;
-            /* Dark Navy/Black */
-            --card-dark: #1c1f2e;
-            /* Slightly lighter dark for cards */
-            --light-bg: #f9f9f9;
-            --text-dark: #1f2937;
-            --text-gray: #6b7280;
-            --white: #ffffff;
-        }
-    </style>
+    :root {
+      --primary-color: #ff6b35;
+      --dark-bg: #13151f;
+      --card-dark: #1c1f2e;
+      --light-bg: #f9f9f9;
+      --text-dark: #1f2937;
+      --text-gray: #6b7280;
+      --white: #ffffff;
+    }
+  </style>
 </head>
 
 <body class="bg-[var(--primary-dark)] font-sans antialiased text-gray-800">
@@ -272,148 +253,92 @@ if (isset($_POST['register_btn'])) {
 
   <section class="relative min-h-screen py-20 flex items-center justify-center overflow-hidden">
 
-    <!-- <div
-      class="absolute top-0 left-0 w-[520px] h-[520px] bg-[var(--secondary-color)]/10 rounded-full blur-[110px] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-    </div>
-    <div
-      class="absolute bottom-0 right-0 w-[520px] h-[520px] bg-[var(--btn-color)]/10 rounded-full blur-[110px] translate-x-1/2 translate-y-1/2 pointer-events-none">
-    </div> -->
-
     <div class="container relative z-10 mx-auto px-4">
-      <div
-        class="max-w-3xl mx-auto bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.30)] relative overflow-hidden">
+      <div class="max-w-md mx-auto bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.30)] relative overflow-hidden">
 
         <div class="absolute top-0 left-0 w-full h-2 bg-[var(--secondary-color)]"></div>
 
         <div class="p-8 md:p-12">
-          <div class="text-center mb-10">
-            <span class="text-[var(--secondary-color)] font-bold tracking-wider uppercase text-xs">
-              Join <?php echo $app['app_name']; ?>
-            </span>
-            <h3 class="text-3xl font-extrabold text-[var(--primary-dark)] mt-2">
-              Create Your <?php echo $app['app_name']; ?> Account
+          <div class="text-center mb-8">
+            <h3 class="text-2xl font-bold text-[var(--primary-dark)]">
+              Create Account
             </h3>
-            <p class="text-gray-500 mt-2 text-sm">Register as a client to post jobs and track progress.</p>
+            <p class="text-gray-500 mt-1 text-sm">Register to get started</p>
           </div>
 
           <?php if (!empty($error)): ?>
-            <div class="bg-red-50 border-l-4 border-red-500 text-red-600 p-4 mb-8 rounded-r-lg text-sm flex items-center">
+            <div class="bg-red-50 border-l-4 border-red-500 text-red-600 p-4 mb-6 rounded-r-lg text-sm flex items-center">
               <i class="fas fa-exclamation-circle mr-2"></i>
               <?php echo $error; ?>
             </div>
           <?php endif; ?>
 
-          <form class="space-y-6" method="POST" enctype="multipart/form-data">
+          <form class="space-y-5" method="POST" enctype="multipart/form-data">
 
-            <!-- Hidden fields -->
             <input type="hidden" name="redirect"
               value="<?php echo htmlspecialchars($redirectKeyInitial, ENT_QUOTES, 'UTF-8'); ?>">
             <input type="hidden" name="job_id" value="<?php echo (int) $jobId; ?>">
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Account Type</label>
-                <div class="relative">
-                  <select
-                    class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl text-gray-600 cursor-not-allowed outline-none pointer-events-none appearance-none">
-                    <option selected>Client (I need a service)</option>
-                  </select>
-                  <i class="fas fa-lock absolute right-4 top-4 text-gray-400"></i>
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Full Name</label>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <i class="fa-regular fa-user text-gray-400"></i>
                 </div>
-              </div>
-
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">City*</label>
-                <div class="relative">
-                  <select
-                    class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl text-gray-500 cursor-not-allowed outline-none pointer-events-none appearance-none">
-                    <option value="Karachi" selected>Karachi</option>
-                  </select>
-                  <i class="fas fa-lock absolute right-4 top-4 text-gray-400"></i>
-                </div>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Full Name*</label>
                 <input type="text" name="name" required placeholder="John Doe"
                   value="<?php echo htmlspecialchars($name, ENT_QUOTES, 'UTF-8'); ?>"
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
-              </div>
-
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Email Address (Optional)</label>
-                <input type="email" name="email" placeholder="name@example.com"
-                  value="<?php echo htmlspecialchars($email, ENT_QUOTES, 'UTF-8'); ?>"
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Phone Number*</label>
-                <input type="tel" id="phone" name="phone" required placeholder="03XXXXXXXXX" maxlength="11"
-                  value="<?php echo htmlspecialchars($phone, ENT_QUOTES, 'UTF-8'); ?>"
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
-                <p class="text-xs text-gray-400 mt-1">Format: 03XXXXXXXXX (11 digits)</p>
-              </div>
-
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">CNIC (Optional)</label>
-                <input type="text" id="cnic" name="cnic" placeholder="42101-1234567-1" maxlength="15"
-                  value="<?php echo htmlspecialchars($cnic, ENT_QUOTES, 'UTF-8'); ?>"
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
-                <p class="text-xs text-gray-400 mt-1">Format: XXXXX-XXXXXXX-X</p>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Select Area*</label>
-                <select name="area" required
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none cursor-pointer">
-                  <option value="" disabled <?php echo empty($area) ? 'selected' : ''; ?>>Select Area in Karachi
-                  </option>
-                  <?php foreach ($karachi_areas as $a): ?>
-                    <option value="<?php echo htmlspecialchars($a, ENT_QUOTES, 'UTF-8'); ?>" <?php echo ($area === $a) ? 'selected' : ''; ?>>
-                      <?php echo htmlspecialchars($a, ENT_QUOTES, 'UTF-8'); ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Address (Optional)</label>
-                <input type="text" name="address" placeholder="Flat / Street / Block"
-                  value="<?php echo htmlspecialchars($address, ENT_QUOTES, 'UTF-8'); ?>"
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
+                  class="w-full h-[50px] pl-10 pr-4 bg-[var(--bg-color)] border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
               </div>
             </div>
 
             <div>
-              <label class="block text-sm font-bold text-gray-700 mb-2">Profile Picture (Optional)</label>
-              <input type="file" id="profile_image" name="profile_image" accept="image/*"
-                class="w-full px-4 py-3 bg-[var(--bg-color)] border border-gray-200 rounded-xl">
+              <label class="block text-sm font-bold text-gray-700 mb-2">Email (Optional)</label>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <i class="fa-regular fa-envelope text-gray-400"></i>
+                </div>
+                <input type="email" name="email" placeholder="user@example.com"
+                  value="<?php echo htmlspecialchars($email, ENT_QUOTES, 'UTF-8'); ?>"
+                  class="w-full h-[50px] pl-10 pr-4 bg-[var(--bg-color)] border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
+              </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Password*</label>
-                <input type="password" name="password" required placeholder="Min 8 chars"
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Phone Number</label>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <i class="fa-solid fa-phone text-gray-400 text-sm"></i>
+                </div>
+                <input type="tel" id="phone" name="phone" required placeholder="03XXXXXXXXX" maxlength="11"
+                  value="<?php echo htmlspecialchars($phone, ENT_QUOTES, 'UTF-8'); ?>"
+                  class="w-full h-[50px] pl-10 pr-4 bg-[var(--bg-color)] border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
               </div>
+            </div>
 
-              <div>
-                <label class="block text-sm font-bold text-gray-700 mb-2">Confirm Password*</label>
-                <input type="password" name="cpassword" required placeholder="Repeat password"
-                  class="w-full h-[50px] px-4 bg-[var(--bg-color)] border border-gray-200 rounded-xl focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
+            <div>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Password</label>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <i class="fa-solid fa-lock text-gray-400"></i>
+                </div>
+                <input type="password" name="password" required placeholder="........"
+                  class="w-full h-[50px] pl-10 pr-4 bg-[var(--bg-color)] border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
+              </div>
+            </div>
+
+            <div>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <i class="fa-solid fa-lock text-gray-400"></i>
+                </div>
+                <input type="password" name="cpassword" required placeholder="Confirm Password"
+                  class="w-full h-[50px] pl-10 pr-4 bg-[var(--bg-color)] border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--secondary-color)]/20 focus:border-[var(--secondary-color)] transition-all outline-none">
               </div>
             </div>
 
             <button name="register_btn"
-              class="w-full py-4 text-white font-bold rounded-xl text-lg shadow-lg transition-all duration-300 hover:-translate-y-1 mt-4 bg-[var(--btn-color)] hover:opacity-95 focus:ring-4 focus:outline-none focus:ring-[var(--btn-color)]/30">
-              Create Account
+              class="w-full py-3 text-white font-bold rounded-lg text-lg shadow-md transition-all duration-300 hover:-translate-y-1 mt-6 bg-[var(--btn-color)] hover:opacity-90">
+              Register
             </button>
 
             <?php
@@ -429,11 +354,11 @@ if (isset($_POST['register_btn'])) {
               $loginUrl .= '?' . http_build_query($loginQuery);
             ?>
 
-            <div class="text-center pt-4 border-t border-gray-100">
-              <span class="text-gray-500">Already have an account?</span>
-              <a class="text-[var(--secondary-color)] font-bold hover:underline ml-1"
+            <div class="text-center pt-4">
+              <span class="text-gray-400 text-sm">Already have an account?</span>
+              <a class="text-[var(--secondary-color)] font-bold hover:underline ml-1 text-sm"
                 href="<?php echo htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8'); ?>">
-                Log In
+                Login here
               </a>
             </div>
 
@@ -447,10 +372,10 @@ if (isset($_POST['register_btn'])) {
 
   <script>
     // CNIC auto-format
-    document.getElementById('cnic').addEventListener('input', function (e) {
-      let x = e.target.value.replace(/\D/g, '').match(/(\d{0,5})(\d{0,7})(\d{0,1})/);
-      e.target.value = !x[2] ? x[1] : x[1] + '-' + x[2] + (x[3] ? '-' + x[3] : '');
-    });
+    // document.getElementById('cnic').addEventListener('input', function (e) {
+    //   let x = e.target.value.replace(/\D/g, '').match(/(\d{0,5})(\d{0,7})(\d{0,1})/);
+    //   e.target.value = !x[2] ? x[1] : x[1] + '-' + x[2] + (x[3] ? '-' + x[3] : '');
+    // });
 
     // phone numeric-only, max 11
     document.getElementById('phone').addEventListener('input', function () {

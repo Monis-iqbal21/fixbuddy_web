@@ -44,7 +44,7 @@ $adminDashboard  = '/fixmate/pages/dashboards/admin/admin-dashboard.php';
 $clientPostJobUrl = $clientDashboard . '?page=post-job';
 
 // Logo
-$logoPath = '/fixmate/assets/images/logo_fixmate.png';
+$logoPath = '/fixmate/assets/images/fix_buddy_logo.png';
 
 // Decide dashboard link
 $dashboardUrl = ($userRole === 'admin') ? $adminDashboard : $clientDashboard;

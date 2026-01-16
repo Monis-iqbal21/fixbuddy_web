@@ -532,10 +532,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (isset($JOB_COLS['client_marked_done']))
                             $set[] = "client_marked_done = 1";
 
-                        // ✅ FLOW RULE:
-                        // - never set live again
-                        // - keep in_progress until both marked done
-                        $nextStatus = $freshWorkerDone ? 'completed' : 'in_progress';
+                        // ✅ FIX: 'inprogress' (not 'in_progress')
+                        $nextStatus = $freshWorkerDone ? 'completed' : 'inprogress';
                         $set[] = "status = '" . $conn->real_escape_string($nextStatus) . "'";
 
                         $sqlUp = "UPDATE jobs SET " . implode(", ", $set) . " WHERE id = ? AND client_id = ? LIMIT 1";
@@ -698,7 +696,6 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
 <div class="px-4 sm:px-8 py-6">
     <div class="max-w-5xl">
 
-        <!-- Top bar -->
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <div>
                 <h2 class="text-xl font-semibold text-slate-900">Job Details</h2>
@@ -737,7 +734,6 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
             </div>
         <?php endif; ?>
 
-        <!-- Main Card -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 sm:p-6">
 
             <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -792,7 +788,6 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
                 </div>
             </div>
 
-            <!-- Meta -->
             <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div class="rounded-xl border border-slate-200 p-3">
                     <p class="text-[11px] text-slate-500">Budget</p>
@@ -801,12 +796,14 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
                 <div class="rounded-xl border border-slate-200 p-3">
                     <p class="text-[11px] text-slate-500">Posted</p>
                     <p class="text-sm font-semibold text-slate-900">
-                        <?php echo fm_format_date($job['created_at'] ?? ''); ?></p>
+                        <?php echo fm_format_date($job['created_at'] ?? ''); ?>
+                    </p>
                 </div>
                 <div class="rounded-xl border border-slate-200 p-3">
                     <p class="text-[11px] text-slate-500">Deadline</p>
                     <p class="text-sm font-semibold text-slate-900">
-                        <?php echo fm_format_date($job['expires_at'] ?? ''); ?></p>
+                        <?php echo fm_format_date($job['expires_at'] ?? ''); ?>
+                    </p>
                 </div>
             </div>
 
@@ -827,7 +824,6 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
                 </div>
             <?php endif; ?>
 
-            <!-- Description -->
             <div class="mt-5">
                 <h4 class="text-sm font-semibold text-slate-900 mb-2">Job Description</h4>
                 <div
@@ -836,7 +832,6 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
                 </div>
             </div>
 
-            <!-- Assigned worker -->
             <div class="mt-6">
                 <h4 class="text-sm font-semibold text-slate-900 mb-2">Assigned Worker</h4>
 
@@ -872,7 +867,8 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
 
                                 <div class="min-w-0">
                                     <p class="text-sm font-semibold text-slate-900 truncate">
-                                        <?php echo fm_h($workerName); ?></p>
+                                        <?php echo fm_h($workerName); ?>
+                                    </p>
 
                                     <p class="text-xs text-slate-500 mt-1">
                                         Assigned at: <?php echo fm_format_dt($assignment['assigned_at'] ?? ''); ?>
@@ -935,13 +931,12 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
                 <?php endif; ?>
             </div>
 
-            <!-- Attachments -->
             <div class="mt-6">
                 <h4 class="text-sm font-semibold text-slate-900 mb-2">Attachments</h4>
 
                 <?php if (!empty($attachments)): ?>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <?php foreach ($attachments as $a): ?>
+                        <?php foreach ($attachments as $index => $a): ?>
                             <?php
                             $type = strtolower(trim((string) ($a['file_type'] ?? 'file')));
                             $url = (string) ($a['file_url'] ?? '');
@@ -967,16 +962,14 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
 
                                 <div class="mt-2">
                                     <?php if ($type === 'image'): ?>
-                                        <button type="button" class="w-full"
-                                            onclick="openMediaModal('image', <?php echo json_encode($url); ?>)">
+                                        <button type="button" class="w-full" onclick="openGallery(<?php echo $index; ?>)">
                                             <img src="<?php echo fm_h($url); ?>"
                                                 class="w-full h-36 object-cover rounded-lg border border-slate-200"
                                                 alt="attachment">
                                         </button>
 
                                     <?php elseif ($type === 'video'): ?>
-                                        <button type="button" class="w-full"
-                                            onclick="openMediaModal('video', <?php echo json_encode($url); ?>)">
+                                        <button type="button" class="w-full" onclick="openGallery(<?php echo $index; ?>)">
                                             <div
                                                 class="w-full h-36 rounded-lg border border-slate-200 bg-black flex items-center justify-center text-white/80">
                                                 <span class="ph ph-play-circle text-3xl"></span>
@@ -990,7 +983,7 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
                                             </audio>
                                             <button type="button"
                                                 class="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
-                                                onclick="openMediaModal('audio', <?php echo json_encode($url); ?>)">
+                                                onclick="openGallery(<?php echo $index; ?>)">
                                                 Open voice note
                                             </button>
                                         </div>
@@ -1018,7 +1011,6 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
                 <?php endif; ?>
             </div>
 
-            <!-- Review summary (if exists) -->
             <?php if ($existingReview): ?>
                 <div class="mt-6">
                     <h4 class="text-sm font-semibold text-slate-900 mb-2">Your Review</h4>
@@ -1040,22 +1032,31 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
     </div>
 </div>
 
-<!-- Full View Media Modal -->
-<div id="mediaModal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/70 p-4">
-    <div class="relative w-full max-w-4xl bg-white rounded-2xl overflow-hidden shadow-xl">
-        <button type="button"
-            class="absolute top-3 right-3 z-10 inline-flex items-center justify-center w-9 h-9 rounded-full bg-black/70 text-white hover:bg-black"
-            onclick="closeMediaModal()">
-            <span class="ph ph-x"></span>
-        </button>
+<div id="mediaModal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/85 p-4">
+    <button type="button"
+        class="absolute top-4 right-4 z-50 inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm"
+        onclick="closeMediaModal()">
+        <span class="ph ph-x text-lg"></span>
+    </button>
 
-        <div id="mediaModalBody" class="bg-black flex items-center justify-center min-h-[200px]">
-            <!-- injected -->
+    <button type="button" id="prevMediaBtn"
+        class="absolute left-4 top-1/2 -translate-y-1/2 z-50 inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm hidden"
+        onclick="navigateMedia(-1)">
+        <span class="ph ph-caret-left text-lg"></span>
+    </button>
+
+    <button type="button" id="nextMediaBtn"
+        class="absolute right-4 top-1/2 -translate-y-1/2 z-50 inline-flex items-center justify-center w-10 h-10 rounded-full bg-white/20 text-white hover:bg-white/40 backdrop-blur-sm hidden"
+        onclick="navigateMedia(1)">
+        <span class="ph ph-caret-right text-lg"></span>
+    </button>
+
+    <div class="relative w-full max-w-5xl h-full flex flex-col items-center justify-center">
+        <div id="mediaModalBody" class="flex items-center justify-center w-full h-full">
         </div>
     </div>
 </div>
 
-<!-- Confirm Done Modal -->
 <div id="confirmDoneModal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/40 p-4">
     <div class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-5">
         <h3 class="text-sm font-semibold text-slate-900 mb-2">Confirm completion?</h3>
@@ -1079,7 +1080,6 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
     </div>
 </div>
 
-<!-- Review Modal -->
 <div id="reviewModal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/40 p-4">
     <div class="bg-white rounded-2xl shadow-lg w-full max-w-md p-5">
         <div class="flex items-start justify-between gap-3">
@@ -1135,37 +1135,67 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
 </div>
 
 <script>
-    // Media modal
-    function openMediaModal(type, url) {
+    // Pass PHP attachments to JS
+    const galleryItems = <?php echo json_encode(array_values($attachments)); ?>;
+    let currentMediaIndex = 0;
+
+    function openGallery(index) {
+        currentMediaIndex = index;
+        renderMedia();
+        const modal = document.getElementById('mediaModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closeMediaModal() {
         const modal = document.getElementById('mediaModal');
         const body = document.getElementById('mediaModalBody');
+        body.innerHTML = ""; // Stop video/audio
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    function navigateMedia(dir) {
+        let newIndex = currentMediaIndex + dir;
+        if (newIndex >= 0 && newIndex < galleryItems.length) {
+            currentMediaIndex = newIndex;
+            renderMedia();
+        }
+    }
+
+    function renderMedia() {
+        const item = galleryItems[currentMediaIndex];
+        const body = document.getElementById('mediaModalBody');
+        const prevBtn = document.getElementById('prevMediaBtn');
+        const nextBtn = document.getElementById('nextMediaBtn');
 
         body.innerHTML = "";
 
+        if (!item) return;
+
+        const type = (item.file_type || 'file').toLowerCase();
+        const url = item.file_url || '';
+
+        // Render content based on type
         if (type === 'image') {
             const img = document.createElement('img');
             img.src = url;
-            img.alt = "Full view";
-            img.className = "max-h-[75vh] w-auto object-contain";
-            body.className = "bg-black flex items-center justify-center p-4";
+            img.className = "max-h-[85vh] max-w-full object-contain";
             body.appendChild(img);
-
         } else if (type === 'video') {
             const video = document.createElement('video');
             video.controls = true;
             video.autoplay = true;
-            video.className = "w-full max-h-[75vh] bg-black";
+            video.className = "max-h-[85vh] max-w-full bg-black";
             const src = document.createElement('source');
             src.src = url;
             video.appendChild(src);
-            body.className = "bg-black flex items-center justify-center";
             body.appendChild(video);
-
         } else if (type === 'audio') {
             const wrap = document.createElement('div');
-            wrap.className = "w-full p-6 bg-white";
+            wrap.className = "w-full max-w-md p-6 bg-white rounded-lg shadow-xl";
             const h = document.createElement('div');
-            h.className = "text-sm font-semibold text-slate-900 mb-3";
+            h.className = "text-sm font-semibold text-slate-900 mb-3 text-center";
             h.textContent = "Voice Note";
             const audio = document.createElement('audio');
             audio.controls = true;
@@ -1174,24 +1204,31 @@ $subCategoryName = (string) ($job['sub_category_name'] ?? '');
             const src = document.createElement('source');
             src.src = url;
             audio.appendChild(src);
-
             wrap.appendChild(h);
             wrap.appendChild(audio);
-
-            body.className = "bg-white flex items-center justify-center";
             body.appendChild(wrap);
+        } else {
+            // Fallback for non-media files
+            const link = document.createElement('a');
+            link.href = url;
+            link.target = "_blank";
+            link.className = "text-white text-lg hover:underline flex items-center gap-2";
+            link.innerHTML = '<span class="ph ph-file-arrow-down text-2xl"></span> Download/View File';
+            body.appendChild(link);
         }
 
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-    }
+        // Toggle buttons
+        if (currentMediaIndex > 0) {
+            prevBtn.classList.remove('hidden');
+        } else {
+            prevBtn.classList.add('hidden');
+        }
 
-    function closeMediaModal() {
-        const modal = document.getElementById('mediaModal');
-        const body = document.getElementById('mediaModalBody');
-        body.innerHTML = ""; // stop video/audio
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
+        if (currentMediaIndex < galleryItems.length - 1) {
+            nextBtn.classList.remove('hidden');
+        } else {
+            nextBtn.classList.add('hidden');
+        }
     }
 
     // Confirm done modal

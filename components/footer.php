@@ -54,7 +54,7 @@ $social = [
     'youtube'   => 'https://www.youtube.com/',
 ];
 
-$logoPath = '/fixmate/assets/images/logo_fixmate.png';
+$logoPath = '/fixmate/assets/images/fix_buddy_logo.png';
 ?>
 
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>

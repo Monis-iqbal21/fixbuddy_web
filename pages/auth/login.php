@@ -6,36 +6,46 @@ $app = require '../../config/app.php';
 
 // ----------------- FLASH (errors + sticky) -----------------
 $error = $_SESSION['flash_error'] ?? '';
-$phone = $_SESSION['flash_phone'] ?? '';
-unset($_SESSION['flash_error'], $_SESSION['flash_phone']);
+// Renamed variable locally to represent phone OR email, matches flash key for convenience
+$savedInput = $_SESSION['flash_login_id'] ?? '';
+unset($_SESSION['flash_error'], $_SESSION['flash_login_id']);
 
 // ----------------- JOB_ID PARAM -----------------
 $jobId = 0;
-if (!empty($_GET['job_id']))  $jobId = (int)$_GET['job_id'];
-if (!empty($_POST['job_id'])) $jobId = (int)$_POST['job_id'];
+if (!empty($_GET['job_id']))
+    $jobId = (int) $_GET['job_id'];
+if (!empty($_POST['job_id']))
+    $jobId = (int) $_POST['job_id'];
 
 // ----------------- REDIRECT KEY -----------------
 $redirectKeyInitial = $_GET['redirect'] ?? ($_POST['redirect'] ?? '');
 
 // ----------------- REGISTER URL (preserve intent) -----------------
 $queryParams = [];
-if (!empty($redirectKeyInitial)) $queryParams['redirect'] = $redirectKeyInitial;
-if (!empty($jobId)) $queryParams['job_id'] = $jobId;
+if (!empty($redirectKeyInitial))
+    $queryParams['redirect'] = $redirectKeyInitial;
+if (!empty($jobId))
+    $queryParams['job_id'] = $jobId;
 
 $registerUrl = 'register.php';
-if (!empty($queryParams)) $registerUrl .= '?' . http_build_query($queryParams);
+if (!empty($queryParams))
+    $registerUrl .= '?' . http_build_query($queryParams);
 
 // helper: redirect back to login with flash + preserve query
-function fm_login_back(string $msg, string $phone, int $jobId, string $redirectKeyInitial) {
+function fm_login_back(string $msg, string $inputVal, int $jobId, string $redirectKeyInitial)
+{
     $_SESSION['flash_error'] = $msg;
-    $_SESSION['flash_phone'] = $phone;
+    $_SESSION['flash_login_id'] = $inputVal;
 
     $q = [];
-    if (!empty($redirectKeyInitial)) $q['redirect'] = $redirectKeyInitial;
-    if (!empty($jobId)) $q['job_id'] = $jobId;
+    if (!empty($redirectKeyInitial))
+        $q['redirect'] = $redirectKeyInitial;
+    if (!empty($jobId))
+        $q['job_id'] = $jobId;
 
     $url = 'login.php';
-    if (!empty($q)) $url .= '?' . http_build_query($q);
+    if (!empty($q))
+        $url .= '?' . http_build_query($q);
 
     header("Location: {$url}");
     exit;
@@ -44,51 +54,58 @@ function fm_login_back(string $msg, string $phone, int $jobId, string $redirectK
 // ----------------- LOGIN -----------------
 if (isset($_POST['login_btn'])) {
 
-    $phone = trim($_POST['phone'] ?? '');
+    // Allow phone OR email
+    $loginId = trim($_POST['login_id'] ?? '');
     $password = $_POST['password'] ?? '';
     $redirectKey = $_POST['redirect'] ?? ($_GET['redirect'] ?? '');
 
-    if ($phone === '' || $password === '') {
-        fm_login_back("Phone number and password are required.", $phone, $jobId, $redirectKeyInitial);
+    if ($loginId === '' || $password === '') {
+        fm_login_back("Phone/Email and password are required.", $loginId, $jobId, $redirectKeyInitial);
     }
 
-    if (!preg_match('/^03[0-9]{9}$/', $phone)) {
-        fm_login_back("Invalid phone number format.", $phone, $jobId, $redirectKeyInitial);
+    // Determine valid format (Phone OR Email)
+    $isPhone = preg_match('/^03[0-9]{9}$/', $loginId);
+    $isEmail = filter_var($loginId, FILTER_VALIDATE_EMAIL);
+
+    if (!$isPhone && !$isEmail) {
+        fm_login_back("Invalid format. Enter a valid Phone (03XXXXXXXXX) or Email.", $loginId, $jobId, $redirectKeyInitial);
     }
 
+    // Check both columns
     $stmt = $conn->prepare("
         SELECT id, name, phone, email, password_hash, role, is_active
         FROM users
-        WHERE phone = ?
+        WHERE phone = ? OR email = ?
         LIMIT 1
     ");
-    $stmt->bind_param("s", $phone);
+    // Bind the same input to both ? placeholders
+    $stmt->bind_param("ss", $loginId, $loginId);
     $stmt->execute();
     $res = $stmt->get_result();
 
     if (!$res || $res->num_rows !== 1) {
         $stmt->close();
-        fm_login_back("No account found with this phone number.", $phone, $jobId, $redirectKeyInitial);
+        fm_login_back("No account found with this credential.", $loginId, $jobId, $redirectKeyInitial);
     }
 
     $user = $res->fetch_assoc();
     $stmt->close();
 
-    if ((int)$user['is_active'] !== 1) {
-        fm_login_back("Your account is inactive. Please contact support.", $phone, $jobId, $redirectKeyInitial);
+    if ((int) $user['is_active'] !== 1) {
+        fm_login_back("Your account is inactive. Please contact support.", $loginId, $jobId, $redirectKeyInitial);
     }
 
     if (!password_verify($password, $user['password_hash'])) {
-        fm_login_back("Incorrect password.", $phone, $jobId, $redirectKeyInitial);
+        fm_login_back("Incorrect password.", $loginId, $jobId, $redirectKeyInitial);
     }
 
     // ✅ SUCCESS: Session + redirect (PRG)
-    $_SESSION['user_id'] = (int)$user['id'];
-    $_SESSION['name']    = $user['name'];
-    $_SESSION['phone']   = $user['phone'];
-    $_SESSION['email']   = $user['email'];
-    $_SESSION['role']    = strtolower($user['role']);
-    $_SESSION['token']   = bin2hex(random_bytes(32));
+    $_SESSION['user_id'] = (int) $user['id'];
+    $_SESSION['name'] = $user['name'];
+    $_SESSION['phone'] = $user['phone'];
+    $_SESSION['email'] = $user['email'];
+    $_SESSION['role'] = strtolower($user['role']);
+    $_SESSION['token'] = bin2hex(random_bytes(32));
 
     // --------- JOB REDIRECT ---------
     if ($jobId > 0) {
@@ -96,7 +113,7 @@ if (isset($_POST['login_btn'])) {
             header("Location: /fixmate/pages/admin/job-detail.php?job_id={$jobId}");
         } elseif ($_SESSION['role'] === 'client') {
             header("Location: /fixmate/pages/dashboards/client/client-dashboard.php?page=job-detail&job_id={$jobId}");
-        }else{
+        } else {
             header("Location: /fixmate/pages/404page.php");
         }
         exit;
@@ -113,7 +130,7 @@ if (isset($_POST['login_btn'])) {
         header("Location: /fixmate/pages/dashboards/admin/admin-dashboard.php");
     } elseif ($_SESSION['role'] === 'client') {
         header("Location: /fixmate/pages/dashboards/client/client-dashboard.php");
-    }else{
+    } else {
         header("Location: /fixmate/pages/404page.php");
     }
     exit;
@@ -162,13 +179,6 @@ if (isset($_POST['login_btn'])) {
 
     <section class="relative min-h-[80vh] flex items-center justify-center py-10">
 
-        <!-- <div
-            class="absolute top-0 left-0 w-[500px] h-[500px] bg-[var(--secondary-color)]/10 rounded-full blur-[100px] -translate-x-1/2 -translate-y-1/2">
-        </div>
-        <div
-            class="absolute bottom-0 right-0 w-[500px] h-[500px] bg-[var(--btn-color)]/10 rounded-full blur-[100px] translate-x-1/2 translate-y-1/2">
-        </div> -->
-
         <div class="relative z-10 w-full max-w-md bg-white rounded-3xl shadow-xl p-8">
 
             <div class="h-2 w-full bg-[var(--secondary-color)] absolute top-0 left-0 rounded-t-3xl"></div>
@@ -178,7 +188,7 @@ if (isset($_POST['login_btn'])) {
                 <h2 class="text-3xl font-extrabold text-[var(--primary-dark)] mt-2">
                     Login to <?php echo $app['app_name']; ?>
                 </h2>
-                <p class="text-gray-400 text-sm mt-2">Use your phone number to continue</p>
+                <p class="text-gray-400 text-sm mt-2">Use your phone number or email to continue</p>
             </div>
 
             <?php if ($error): ?>
@@ -193,10 +203,10 @@ if (isset($_POST['login_btn'])) {
                 <input type="hidden" name="job_id" value="<?php echo $jobId ?: ''; ?>">
 
                 <div>
-                    <label class="block text-sm font-semibold mb-2">Phone Number</label>
-                    <input type="tel" name="phone" required maxlength="11"
-                        value="<?php echo htmlspecialchars($phone); ?>" placeholder="03XXXXXXXXX" class="w-full px-4 py-3 rounded-xl border bg-[var(--bg-color)]
-focus:ring-2 focus:ring-[var(--secondary-color)]/30 outline-none">
+                    <label class="block text-sm font-semibold mb-2">Phone Number or Email</label>
+                    <input type="text" name="login_id" required value="<?php echo htmlspecialchars($savedInput); ?>"
+                        placeholder="03XXXXXXXXX or user@email.com"
+                        class="w-full px-4 py-3 rounded-xl border bg-[var(--bg-color)] focus:ring-2 focus:ring-[var(--secondary-color)]/30 outline-none">
                 </div>
 
                 <div>
@@ -223,12 +233,6 @@ bg-[var(--btn-color)] hover:opacity-90 transition">
     </section>
 
     <?php include '../../components/footer.php'; ?>
-
-    <script>
-        document.querySelector('input[name="phone"]').addEventListener('input', function () {
-            this.value = this.value.replace(/[^0-9]/g, '').slice(0, 11);
-        });
-    </script>
 
 </body>
 

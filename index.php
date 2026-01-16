@@ -648,8 +648,16 @@ $appPhone = htmlspecialchars($app['app_phone'] ?? '111-222-333', ENT_QUOTES, 'UT
             }
         }
 
+        .hero-image {
+            max-width: 500px;
+        }
+
+        .hero_img {
+            background-position: center center;
+            background-image: contain;
+        }
+
         /* Tablet: hide top links earlier (optional) */
-        
     </style>
 </head>
 
@@ -681,7 +689,7 @@ $appPhone = htmlspecialchars($app['app_phone'] ?? '111-222-333', ENT_QUOTES, 'UT
             </div>
 
             <div class="hero-image">
-                <img src="https://placehold.co/500x500/e2e8f0/1e293b?text=Technician+Image" alt="Technician">
+                <img src="./assets/images/home_img3.png" class="hero_img" alt="Technician">
             </div>
         </div>
     </section>
@@ -782,7 +790,7 @@ $appPhone = htmlspecialchars($app['app_phone'] ?? '111-222-333', ENT_QUOTES, 'UT
                 </div>
             </div>
             <div class="cta-image">
-                <img src="https://placehold.co/400x500/1f2937/ffffff?text=Worker+Img" alt="Worker">
+                <img src="./assets/images/home_img2.png" class="hero-image" alt="Worker">
             </div>
         </div>
     </section>
@@ -819,7 +827,7 @@ $appPhone = htmlspecialchars($app['app_phone'] ?? '111-222-333', ENT_QUOTES, 'UT
                 </div>
             </div>
             <div class="why-image">
-                <img src="https://placehold.co/500x350/ddd/333?text=Flooring+Installation" alt="Working">
+                <img src="./assets/images/buddy-car2.png" alt="Working">
             </div>
         </div>
     </section>

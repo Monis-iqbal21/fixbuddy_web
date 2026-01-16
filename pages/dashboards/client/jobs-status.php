@@ -1,12 +1,6 @@
 <?php
 // /fixmate/pages/dashboards/client/your-jobs.php
 // Can be included inside client-dashboard.php?page=jobs-status (or similar)
-//
-// ✅ Upgrades added:
-// - Client actions handled via POST here (Confirm Completion / Delete) with CSRF
-// - Admin notifications on: client_mark_done, delete_job (and a ready hook for review_submitted)
-// - Handshake logic aligned with your flow: status stays "in_progress" until both done, then "completed"
-// - FILTER SYSTEM (GET search/status) kept exactly the same (no changes)
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -433,8 +427,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // STATUS RULE (your flow):
             // - Do NOT set "live" ever
-            // - Keep status as "in_progress" until both confirmed
-            $nextStatus = $workerDone ? 'completed' : 'in_progress';
+            // - Keep status as "inprogress" (NOT "in_progress") until both confirmed
+            // - If worker already marked done, transition to 'completed'
+            $nextStatus = $workerDone ? 'completed' : 'inprogress';
             $set[] = "status = '" . $conn->real_escape_string($nextStatus) . "'";
 
             $sqlUp = "UPDATE jobs SET " . implode(", ", $set) . " WHERE id = ? AND client_id = ? LIMIT 1";
@@ -597,7 +592,7 @@ if ($statusFilter !== 'all') {
 }
 
 // ---------------------------
-// Query (UNCHANGED logic)
+// Query (Includes Review Check Subquery)
 // ---------------------------
 $sql = "
     SELECT
@@ -610,7 +605,9 @@ $sql = "
 
         w.full_name AS worker_name,
         w.phone     AS worker_phone,
-        w.email     AS worker_email
+        w.email     AS worker_email,
+
+        (SELECT COUNT(id) FROM reviews r WHERE r.job_id = j.id AND r.client_id = j.client_id) as review_count
 
     FROM jobs j
     LEFT JOIN categories c ON c.id = j.category_id
@@ -756,8 +753,9 @@ $now = new DateTime();
             $canMarkComplete = $hasAssigned && !$isLocked && !$clientDone
                 && in_array($status, ['waiting_client_confirmation', 'in_progress', 'inprogress', 'worker_coming'], true);
 
-            // Review only when truly completed (handshake completed)
-            $canReview = ($status === 'completed') || ($clientDone && $workerDone);
+            // ✅ REVIEW CHECK: Status is 'completed' AND client hasn't reviewed yet
+            $reviewCount = (int) ($job['review_count'] ?? 0);
+            $canReview = ($status === 'completed') && ($reviewCount === 0);
 
             [$badgeText, $badgeClass] = fm_status_badge($job, $now);
             $handshake = fm_handshake_badge($job);
@@ -783,7 +781,6 @@ $now = new DateTime();
 
             <div class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <!-- Left -->
                     <div class="min-w-0">
                         <h3 class="text-sm sm:text-base font-semibold text-slate-900 truncate">
                             #<?php echo (int) $jobId; ?> — <?php echo fm_h($title); ?>
@@ -826,7 +823,6 @@ $now = new DateTime();
                         </div>
                     </div>
 
-                    <!-- Right -->
                     <div class="flex flex-col items-start sm:items-end gap-2">
                         <div class="flex flex-wrap gap-2 sm:justify-end">
                             <?php echo fm_badge_html($badgeText, $badgeClass); ?>
@@ -890,7 +886,6 @@ $now = new DateTime();
 
 <?php endif; ?>
 
-<!-- Delete Modal -->
 <div id="deleteModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40">
     <div class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-5">
         <h3 class="text-sm font-semibold text-slate-900 mb-2">Delete job?</h3>
@@ -915,7 +910,6 @@ $now = new DateTime();
     </div>
 </div>
 
-<!-- Complete Modal -->
 <div id="completeModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40">
     <div class="bg-white rounded-2xl shadow-lg w-full max-w-sm p-5">
         <h3 class="text-sm font-semibold text-slate-900 mb-2">Confirm completion?</h3>

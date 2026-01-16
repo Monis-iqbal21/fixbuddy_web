@@ -113,7 +113,7 @@ function fm_bool_from_job(array $job, array $keys): bool
 }
 
 /**
- * Handshake (client vs worker) completion state.
+ * Handshake (client vs worker/admin) completion flags.
  * IMPORTANT: In your system, Admin confirms as "worker side".
  */
 function fm_get_done_flags(array $job): array
@@ -127,13 +127,13 @@ function fm_get_done_flags(array $job): array
     ]);
 
     $workerDone = fm_bool_from_job($job, [
-        'worker_marked_done',   // ✅ your required column
+        'worker_marked_done',   // ✅ required column
         'worker_mark_done',
         'worker_done',
         'worker_mark_done_at',
         'worker_done_at',
 
-        // legacy / admin-side mirrors (safe)
+        // legacy/admin mirrors (safe)
         'admin_mark_done',
         'admin_done',
         'admin_mark_done_at',
@@ -145,44 +145,35 @@ function fm_get_done_flags(array $job): array
 
 /**
  * Status badge (based on jobs.status) + Expired override.
- * NOTE: Using your requested status naming: "inprogress" (no underscore)
+ * ✅ Your jobs.status enum: (live, assigned, inprogress, completed, expire, deleted)
  */
 function fm_status_badge(array $job, DateTime $now): array
 {
     $status = strtolower(trim((string) ($job['status'] ?? 'live')));
 
+    // final states
     if ($status === 'completed')
         return ['Completed', 'bg-indigo-100 text-indigo-700 border-indigo-200'];
-    if ($status === 'cancelled')
-        return ['Cancelled', 'bg-slate-200 text-slate-700 border-slate-300'];
     if ($status === 'deleted')
         return ['Deleted', 'bg-slate-200 text-slate-700 border-slate-300'];
 
-    if (fm_compute_is_expired($job, $now)) {
+    // explicit expire in enum OR by deadline
+    if ($status === 'expire' || fm_compute_is_expired($job, $now)) {
         return ['Expired', 'bg-rose-100 text-rose-700 border-rose-200'];
     }
 
     if ($status === 'assigned')
         return ['Assigned', 'bg-sky-50 text-sky-800 border-sky-200'];
 
-    // ✅ progress
-    if ($status === 'inprogress' || $status === 'in_progress') {
+    if ($status === 'inprogress' || $status === 'in_progress')
         return ['In Progress', 'bg-violet-50 text-violet-800 border-violet-200'];
-    }
-
-    // ✅ handshake states
-    if ($status === 'waiting_client_confirmation') {
-        return ['Waiting Client Confirmation', 'bg-cyan-50 text-cyan-800 border-cyan-200'];
-    }
-    if ($status === 'waiting_worker_confirmation') {
-        return ['Waiting Worker Confirmation', 'bg-amber-50 text-amber-800 border-amber-200'];
-    }
 
     return ['Live', 'bg-emerald-100 text-emerald-700 border-emerald-200'];
 }
 
 /**
- * Handshake badge logic (based on flags, not just status)
+ * Handshake badge logic (based on flags, NOT status)
+ * (This is independent of status enum)
  */
 function fm_handshake_badge(array $job): ?array
 {
@@ -353,7 +344,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $jobStatus = strtolower(trim((string) ($jobRow['status'] ?? '')));
-            $isFinal = in_array($jobStatus, ['completed', 'cancelled', 'deleted'], true);
+            if ($jobStatus === 'in_progress')
+                $jobStatus = 'inprogress'; // normalize
+            $isFinal = in_array($jobStatus, ['completed', 'deleted'], true);
 
             // Active assignment
             $activeAssign = null;
@@ -397,23 +390,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             };
 
-            // Helper: compute next status based on handshake flags
-            $computeNextStatus = function (bool $clientDone, bool $workerDone): string {
-                if ($clientDone && $workerDone)
-                    return 'completed';
-                if ($workerDone && !$clientDone)
-                    return 'waiting_client_confirmation';
-                if ($clientDone && !$workerDone)
-                    return 'waiting_worker_confirmation';
-                return 'inprogress'; // default progress state if needed
-            };
-
             // ---------------------------
             // assign_worker
             // ---------------------------
             if ($action === 'assign_worker') {
                 if ($isFinal) {
-                    $flashError = "This job is already finalized (completed/cancelled/deleted).";
+                    $flashError = "This job is already finalized (completed/deleted).";
                 } else {
                     $workerId = (int) ($_POST['worker_id'] ?? 0);
                     if ($workerId <= 0) {
@@ -485,7 +467,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // ---------------------------
             elseif ($action === 'unassign_worker') {
                 if ($isFinal) {
-                    $flashError = "This job is already finalized (completed/cancelled/deleted).";
+                    $flashError = "This job is already finalized (completed/deleted).";
                 } elseif (!$activeAssign) {
                     $flashError = "This job has no active assigned worker.";
                 } else {
@@ -528,23 +510,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // ---------------------------
             elseif ($action === 'set_stage') {
                 if ($isFinal) {
-                    $flashError = "This job is already finalized (completed/cancelled/deleted).";
+                    $flashError = "This job is already finalized (completed/deleted).";
                 } elseif (!$activeAssign) {
                     $flashError = "Assign a worker first to set progress.";
                 } else {
                     $stage = strtolower(trim((string) ($_POST['stage'] ?? '')));
 
-                    // ✅ only allow inprogress (your requirement)
+                    // ✅ only allow inprogress
                     $allowed = ['inprogress', 'in_progress'];
                     if (!in_array($stage, $allowed, true)) {
                         $flashError = "Invalid stage.";
                     } else {
-                        // Normalize to DB value you want
+                        // Normalize to DB enum value
                         $dbStage = 'inprogress';
 
-                        // Only allow moving to inprogress from assigned/live
-                        if (!in_array($jobStatus, ['assigned', 'live', 'inprogress', 'in_progress'], true)) {
-                            $flashError = "You can only start progress from Assigned/Live.";
+                        // Only allow moving to inprogress from assigned/live or already inprogress
+                        if (!in_array($jobStatus, ['assigned', 'live', 'inprogress'], true)) {
+                            $flashError = "You can only start progress from Live/Assigned.";
                         } else {
                             $note = trim((string) ($_POST['note'] ?? ''));
 
@@ -560,7 +542,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                                 $insertHistory('inprogress', $note);
 
-                                // Notification
                                 $notifyClient($jobId, "job_inprogress", "Job in progress", "Your job #{$jobId} is now in progress.", null);
 
                                 $conn->commit();
@@ -574,90 +555,95 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-
+            // ---------------------------
             // ✅ Admin marks "worker side done":
             // - sets worker_marked_done = 1
-            // - keeps status = inprogress (NOT live, NOT waiting_*)
+            // - keeps status = inprogress (NEVER live)
             // - only sets status = completed when BOTH client + worker are done
+            // ✅ SHOW THIS BUTTON when:
+            // - status = inprogress
+            // - worker_marked_done = 0
+            // (even if client_marked_done = 1, admin must still be able to mark worker side done)
+            // ---------------------------
             elseif ($action === 'mark_worker_done_admin') {
                 if ($isFinal) {
-                    $flashError = "This job is already finalized (completed/cancelled/deleted).";
+                    $flashError = "This job is already finalized (completed/deleted).";
                 } elseif (!$activeAssign) {
                     $flashError = "Assign a worker first to confirm job done.";
                 } else {
                     $reason = trim((string) ($_POST['reason'] ?? ''));
 
-                    // current flags
                     [$clientDone, $workerDone] = fm_get_done_flags($jobRow ?: []);
 
-                    $conn->begin_transaction();
-                    try {
-                        $setParts = [];
-                        $setParts[] = "updated_at = NOW()";
+                    // If already done on worker side, be idempotent
+                    if ($workerDone) {
+                        $flashSuccess = "Already marked done on worker/admin side.";
+                    } else {
 
-                        // ✅ REQUIRED COLUMN (your latest)
-                        if (isset($JOB_COLS['worker_marked_done'])) {
-                            $setParts[] = "worker_marked_done = 1";
+                        $conn->begin_transaction();
+                        try {
+                            $setParts = [];
+                            $setParts[] = "updated_at = NOW()";
+
+                            // ✅ REQUIRED COLUMN
+                            if (isset($JOB_COLS['worker_marked_done'])) {
+                                $setParts[] = "worker_marked_done = 1";
+                            }
+
+                            // Compatibility columns (safe if present)
+                            if (isset($JOB_COLS['worker_mark_done']))
+                                $setParts[] = "worker_mark_done = 1";
+                            if (isset($JOB_COLS['worker_done']))
+                                $setParts[] = "worker_done = 1";
+                            if (isset($JOB_COLS['worker_mark_done_at']))
+                                $setParts[] = "worker_mark_done_at = NOW()";
+                            if (isset($JOB_COLS['worker_done_at']))
+                                $setParts[] = "worker_done_at = NOW()";
+
+                            // admin mirrors
+                            if (isset($JOB_COLS['admin_mark_done']))
+                                $setParts[] = "admin_mark_done = 1";
+                            if (isset($JOB_COLS['admin_done']))
+                                $setParts[] = "admin_done = 1";
+                            if (isset($JOB_COLS['admin_mark_done_at']))
+                                $setParts[] = "admin_mark_done_at = NOW()";
+                            if (isset($JOB_COLS['admin_done_at']))
+                                $setParts[] = "admin_done_at = NOW()";
+
+                            // ✅ STATUS RULE (enum-safe):
+                            // - if client already done => completed
+                            // - else keep inprogress
+                            $nextStatus = ($clientDone) ? 'completed' : 'inprogress';
+                            $setParts[] = "status = '" . $conn->real_escape_string($nextStatus) . "'";
+
+                            $sqlUp = "UPDATE jobs SET " . implode(", ", $setParts) . " WHERE id = ? LIMIT 1";
+                            $up = $conn->prepare($sqlUp);
+                            if (!$up)
+                                throw new Exception("Prepare failed: " . $conn->error);
+
+                            $up->bind_param("i", $jobId);
+                            if (!$up->execute())
+                                throw new Exception("Failed to mark worker/admin done.");
+                            $up->close();
+
+                            $insertHistory('worker_marked_done_by_admin', $reason);
+
+                            if ($nextStatus === 'completed') {
+                                $notifyClient($jobId, "job_completed", "Job completed", "Job #{$jobId} is completed (both confirmations done).", null);
+                                $flashSuccess = "Worker marked done. Client already confirmed → Job Completed.";
+                            } else {
+                                $notifyClient($jobId, "job_worker_done", "Worker marked done", "Worker/admin marked job #{$jobId} as done. Please confirm completion in the app.", null);
+                                $flashSuccess = "Worker marked done. Status stays In Progress; waiting for client confirmation.";
+                            }
+
+                            $conn->commit();
+                        } catch (Throwable $e) {
+                            $conn->rollback();
+                            $flashError = $e->getMessage();
                         }
-
-                        // Compatibility columns (safe if present)
-                        if (isset($JOB_COLS['worker_mark_done']))
-                            $setParts[] = "worker_mark_done = 1";
-                        if (isset($JOB_COLS['worker_done']))
-                            $setParts[] = "worker_done = 1";
-                        if (isset($JOB_COLS['worker_mark_done_at']))
-                            $setParts[] = "worker_mark_done_at = NOW()";
-                        if (isset($JOB_COLS['worker_done_at']))
-                            $setParts[] = "worker_done_at = NOW()";
-
-                        // admin mirrors (if you have them)
-                        if (isset($JOB_COLS['admin_mark_done']))
-                            $setParts[] = "admin_mark_done = 1";
-                        if (isset($JOB_COLS['admin_done']))
-                            $setParts[] = "admin_done = 1";
-                        if (isset($JOB_COLS['admin_mark_done_at']))
-                            $setParts[] = "admin_mark_done_at = NOW()";
-                        if (isset($JOB_COLS['admin_done_at']))
-                            $setParts[] = "admin_done_at = NOW()";
-
-                        // ✅ STATUS RULE:
-                        // Keep job inprogress until BOTH done, then completed
-                        $nextStatus = ($clientDone) ? 'completed' : 'inprogress';
-                        $setParts[] = "status = '" . $conn->real_escape_string($nextStatus) . "'";
-
-                        $sqlUp = "UPDATE jobs SET " . implode(", ", $setParts) . " WHERE id = ? LIMIT 1";
-                        $up = $conn->prepare($sqlUp);
-                        if (!$up)
-                            throw new Exception("Prepare failed: " . $conn->error);
-
-                        $up->bind_param("i", $jobId);
-                        if (!$up->execute())
-                            throw new Exception("Failed to mark worker/admin done.");
-                        $up->close();
-
-                        $insertHistory('worker_marked_done_by_admin', $reason);
-
-                        // ✅ Notify client (status stays inprogress; badge will show waiting client confirmation)
-                        if ($nextStatus === 'completed') {
-                            $notifyClient($jobId, "job_completed", "Job completed", "Job #{$jobId} is completed (both confirmations done).", null);
-                            $flashSuccess = "Worker marked done. Client was already done → Job Completed.";
-                        } else {
-                            $notifyClient($jobId, "waiting_client_confirmation", "Job marked done by worker", "Job #{$jobId} is marked done by the worker. Please confirm completion.", null);
-                            $flashSuccess = "Worker marked done. Status stays In Progress; waiting for client confirmation.";
-                        }
-
-                        $conn->commit();
-                    } catch (Throwable $e) {
-                        $conn->rollback();
-                        $flashError = $e->getMessage();
                     }
                 }
             }
-
-
-            // ---------------------------
-            // IMPORTANT: Removed admin_confirm_done forced completion behavior (as per your request)
-            // ---------------------------
 
             if ($flashError !== '')
                 $_SESSION['flash_jobs_error'] = $flashError;
@@ -826,17 +812,27 @@ if ($dateFilter === 'today') {
 }
 
 $now = new DateTime();
+
+// ✅ statusFilter must match enum: live/assigned/inprogress/completed/expire/deleted
+// (we also accept "expired" keyword and map it to expire/deadline)
 if ($statusFilter !== 'all') {
-    if ($statusFilter === 'assigned') {
+    $sf = strtolower(trim($statusFilter));
+    if ($sf === 'assigned') {
         $where .= " AND aa.worker_id IS NOT NULL ";
-    } elseif ($statusFilter === 'unassigned') {
+    } elseif ($sf === 'unassigned') {
         $where .= " AND aa.worker_id IS NULL ";
-    } elseif ($statusFilter === 'expired') {
-        $where .= " AND (j.expires_at IS NOT NULL AND j.expires_at <> '0000-00-00 00:00:00' AND j.expires_at < NOW())
-                    AND (LOWER(j.status) NOT IN ('completed','cancelled','deleted')) ";
+    } elseif ($sf === 'expired' || $sf === 'expire') {
+        // expired by enum OR deadline passed (and not completed/deleted)
+        $where .= " AND (
+            LOWER(j.status) = 'expire'
+            OR (j.expires_at IS NOT NULL AND j.expires_at <> '0000-00-00 00:00:00' AND j.expires_at < NOW())
+        )
+        AND (LOWER(j.status) NOT IN ('completed','deleted')) ";
     } else {
+        if ($sf === 'in_progress')
+            $sf = 'inprogress';
         $where .= " AND LOWER(j.status) = ? ";
-        $params[] = strtolower($statusFilter);
+        $params[] = $sf;
         $types .= "s";
     }
 }
@@ -1007,17 +1003,10 @@ $POST_URL = $_SERVER['REQUEST_URI'] ?? 'admin-dashboard.php?page=jobs';
                         </option>
                         <option value="inprogress" <?php echo $statusFilter === 'inprogress' ? 'selected' : ''; ?>>In
                             Progress</option>
-                        <option value="waiting_client_confirmation" <?php echo $statusFilter === 'waiting_client_confirmation' ? 'selected' : ''; ?>>Waiting Client
-                            Confirmation</option>
-                        <option value="waiting_worker_confirmation" <?php echo $statusFilter === 'waiting_worker_confirmation' ? 'selected' : ''; ?>>Waiting Worker
-                            Confirmation</option>
-                        <option value="expired" <?php echo $statusFilter === 'expired' ? 'selected' : ''; ?>>Expired (by
-                            deadline)</option>
+                        <option value="expire" <?php echo ($statusFilter === 'expire' || $statusFilter === 'expired') ? 'selected' : ''; ?>>Expired</option>
                         <option value="unassigned" <?php echo $statusFilter === 'unassigned' ? 'selected' : ''; ?>>
                             Unassigned (no worker)</option>
                         <option value="completed" <?php echo $statusFilter === 'completed' ? 'selected' : ''; ?>>Completed
-                        </option>
-                        <option value="cancelled" <?php echo $statusFilter === 'cancelled' ? 'selected' : ''; ?>>Cancelled
                         </option>
                         <option value="deleted" <?php echo $statusFilter === 'deleted' ? 'selected' : ''; ?>>Deleted
                         </option>
@@ -1129,29 +1118,27 @@ $POST_URL = $_SERVER['REQUEST_URI'] ?? 'admin-dashboard.php?page=jobs';
                     $hasAssigned = ((int) ($job['has_active_assignment'] ?? 0) === 1);
 
                     $status = strtolower(trim((string) ($job['status'] ?? 'live')));
-                    $isFinal = in_array($status, ['completed', 'cancelled', 'deleted'], true);
+                    if ($status === 'in_progress')
+                        $status = 'inprogress';
 
-                    // ✅ Buttons logic (simplified as you requested)
-                    $isInProgress = in_array($status, ['inprogress', 'in_progress'], true);
+                    $isFinal = in_array($status, ['completed', 'deleted'], true);
 
-                    // Start/Worker Coming -> sets status to inprogress
+                    // ✅ Buttons logic
+                    $isInProgress = ($status === 'inprogress');
+
+                    // ✅ Worker Coming button: only when assigned/live + assigned worker exists
                     $showStartBtn = (!$isFinal && $hasAssigned && in_array($status, ['assigned', 'live'], true));
 
-                    // Confirm Job Done -> sets worker_marked_done=1 and status waiting_client_confirmation (unless completed)
+                    // ✅ Confirm Job Done button:
+                    // show when inprogress AND worker/admin not marked done yet
                     [$clientDoneFlag, $workerDoneFlag] = fm_get_done_flags($job);
 
-                    // Confirm button should be shown ONLY when:
-// - job is in progress
-// - worker/admin has NOT marked done yet
-// - not final
-// - worker assigned
                     $showConfirmJobDoneBtn = (
                         !$isFinal &&
                         $hasAssigned &&
                         $isInProgress &&
                         !$workerDoneFlag
                     );
-
 
                     [$badgeText, $badgeClass] = fm_status_badge($job, $now);
                     $statusHtml = fm_badge_html($badgeText, $badgeClass);
@@ -1240,19 +1227,20 @@ $POST_URL = $_SERVER['REQUEST_URI'] ?? 'admin-dashboard.php?page=jobs';
                                             </button>
 
                                             <?php if ($showStartBtn): ?>
-                                                <!-- ✅ Worker Coming button now sets DB status to inprogress -->
+                                                <!-- ✅ Worker Coming => status becomes inprogress -->
                                                 <button type="button"
                                                     class="text-xs px-3 py-1 rounded-md border border-amber-200 text-amber-700 hover:bg-amber-50"
-                                                    onclick="openStageModal(<?php echo $jobId; ?>, 'inprogress', 'Worker Coming', 'Notify client and start job progress (status becomes In Progress).');">
+                                                    onclick="openStageModal(<?php echo $jobId; ?>, 'inprogress', 'Worker Coming', 'This will start job progress (status becomes In Progress).');">
                                                     Worker Coming
                                                 </button>
                                             <?php endif; ?>
 
                                             <?php if ($showConfirmJobDoneBtn): ?>
-                                                <!-- ✅ Confirm Job Done now marks worker_marked_done=1 and waits for client -->
+                                                <!-- ✅ Show even if client already marked done -->
+                                                <!-- ✅ Hide if worker_marked_done = 1 -->
                                                 <button type="button"
                                                     class="text-xs px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
-                                                    onclick="openConfirmModal('worker_done', <?php echo $jobId; ?>, 'Confirm Job Done?', 'This will set worker_marked_done = 1. Status becomes Waiting Client Confirmation (until client confirms).');">
+                                                    onclick="openConfirmModal('worker_done', <?php echo $jobId; ?>, 'Confirm Job Done?', 'This will set worker_marked_done = 1. If client already confirmed, job becomes Completed; otherwise it stays In Progress until client confirms.');">
                                                     Confirm Job Done
                                                 </button>
                                             <?php endif; ?>
@@ -1304,8 +1292,8 @@ $POST_URL = $_SERVER['REQUEST_URI'] ?? 'admin-dashboard.php?page=jobs';
                                         </p>
                                         <p class="text-xs text-slate-600 mt-1">
                                             <span class="font-semibold text-slate-800">Category:</span>
-                                            <?php echo fm_h($catName); ?>             <?php if ($subName !== ''): ?> •
-                                                <?php echo fm_h($subName); ?>             <?php endif; ?>
+                                            <?php echo fm_h($catName); ?>            <?php if ($subName !== ''): ?> •
+                                                <?php echo fm_h($subName); ?>            <?php endif; ?>
                                         </p>
                                         <p class="text-xs text-slate-600 mt-1">
                                             <span class="font-semibold text-slate-800">Client:</span>
@@ -1437,8 +1425,8 @@ $POST_URL = $_SERVER['REQUEST_URI'] ?? 'admin-dashboard.php?page=jobs';
                                                                     #<?php echo $wid; ?> — <?php echo fm_h($wName); ?>
                                                                 </p>
                                                                 <p class="text-xs text-slate-600 truncate">
-                                                                    <?php echo fm_h($wPhone); ?>                     <?php if ($wEmail): ?> •
-                                                                        <?php echo fm_h($wEmail); ?>                     <?php endif; ?>
+                                                                    <?php echo fm_h($wPhone); ?>                    <?php if ($wEmail): ?> •
+                                                                        <?php echo fm_h($wEmail); ?>                    <?php endif; ?>
                                                                 </p>
                                                             </div>
                                                             <div class="flex flex-wrap justify-end gap-2">
@@ -1448,8 +1436,7 @@ $POST_URL = $_SERVER['REQUEST_URI'] ?? 'admin-dashboard.php?page=jobs';
                                                         </div>
 
                                                         <p class="text-[11px] text-slate-500 mt-1">
-                                                            <?php echo fm_h($wCity); ?>                     <?php echo ($wCity && $wArea) ? ' • ' : ''; ?>
-                                                            <?php echo fm_h($wArea); ?>
+                                                            <?php echo fm_h($wCity); ?>                    <?php echo ($wCity && $wArea) ? ' • ' : ''; ?>                    <?php echo fm_h($wArea); ?>
                                                             <?php if ($wCnic !== ''): ?> • CNIC: <?php echo fm_h($wCnic); ?><?php endif; ?>
                                                         </p>
 
@@ -1643,7 +1630,6 @@ $POST_URL = $_SERVER['REQUEST_URI'] ?? 'admin-dashboard.php?page=jobs';
                 btn.className = 'px-3 py-1 rounded-md bg-rose-600 text-white hover:bg-rose-700';
                 btn.textContent = 'Unassign';
             } else if (kind === 'worker_done') {
-                // ✅ this is now "Confirm Job Done"
                 a.value = 'mark_worker_done_admin';
                 btn.className = 'px-3 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700';
                 btn.textContent = 'Confirm Job Done';
